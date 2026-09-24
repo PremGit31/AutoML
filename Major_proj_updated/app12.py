@@ -17,14 +17,10 @@ Changes over app11:
 import warnings
 warnings.filterwarnings("ignore")
 
-# pyrefly: ignore [missing-import]
 import numpy as np
 import pandas as pd
-# pyrefly: ignore [missing-import]
 import streamlit as st
-# pyrefly: ignore [missing-import]
 import plotly.express as px
-# pyrefly: ignore [missing-import]
 import plotly.graph_objects as go
 
 from sklearn.preprocessing import (
@@ -49,12 +45,15 @@ from sklearn.cluster import KMeans, DBSCAN
 # ============================================================
 # Page Configuration
 # ============================================================
-st.set_page_config(
-    page_title="ML and EDA Dashboard",
-    page_icon="🔬",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+try:
+    st.set_page_config(
+        page_title="ML and EDA Dashboard",
+        page_icon="🔬",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
+except Exception:
+    pass
 
 # ============================================================
 # Custom CSS

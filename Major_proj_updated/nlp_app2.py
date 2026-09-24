@@ -1,16 +1,22 @@
 """
-NLP Dashboard — nlp_app1.py
+NLP Dashboard — nlp_app2.py
 ============================
 Standalone text / NLP analysis companion to the Universal ML Dashboard.
 Tabs:
-  1. Corpus Manager      — upload .txt / .log / .csv / .json / .xlsx, append files, build master corpus
-  2. Text Cleaning       — sequential spaCy-driven pipeline with per-step expanders & live banner
+  1. Corpus Manager      — upload .txt/.log/.csv/.json/.xlsx/.pdf/.docx/.pptx,
+                           append files, build master corpus, persistent file log
+  2. Text Cleaning       — sequential spaCy-driven pipeline with per-step expanders,
+                           live banner, and persistent Applied/Unsuccessful status badges
   3. Text EDA            — length distributions, n-gram charts, word clouds, KWIC search
-  4. Vectorization       — TF-IDF / CountVectorizer  +  Sentence Transformers (GPU-aware)
-                           with PCA / t-SNE 2D/3D projections
+  4. Vectorization       — TF-IDF / CountVectorizer  +  Sentence Transformers (GPU-aware,
+                           explicit device selection, FP16), PCA dimensionality reduction
+                           (any number of components, for downstream tasks) and separate
+                           PCA / t-SNE 2D/3D projections (for plotting only)
   5. Text Classification — Naïve Bayes, LinearSVC, Logistic Regression, Random Forest;
                            confusion matrix, classification report, bulk inference
-  6. Topic Modeling      — LDA (CountVec) / NMF (TF-IDF) + K-Means clustering on embeddings
+                           (correctly PCA-aware at inference time)
+  6. Topic Modeling      — LDA (CountVec) / NMF (TF-IDF) + K-Means clustering on embeddings;
+                           guarded against negative-value inputs (embeddings/PCA-reduced)
 
 Requires:
 pip install streamlit spacy textblob wordcloud scikit-learn gensim
@@ -23,6 +29,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 import re
+import time
 import json
 import numpy as np
 import pandas as pd
@@ -32,14 +39,38 @@ import plotly.graph_objects as go
 from collections import Counter
 
 # ──────────────────────────────────────────────────────────────
+# GPU detection (single source of truth, checked once)
+# ──────────────────────────────────────────────────────────────
+@st.cache_resource
+def detect_gpu():
+    """Detect CUDA availability once per session. Returns dict with status info."""
+    info = {"available": False, "name": None, "reason": None}
+    try:
+        import torch
+        if torch.cuda.is_available():
+            info["available"] = True
+            info["name"] = torch.cuda.get_device_name(0)
+        else:
+            info["reason"] = "PyTorch installed but no CUDA device detected."
+    except ImportError:
+        info["reason"] = "PyTorch not installed."
+    return info
+
+GPU_INFO = detect_gpu()
+
+
+# ──────────────────────────────────────────────────────────────
 # Page config
 # ──────────────────────────────────────────────────────────────
-st.set_page_config(
-    page_title="NLP Dashboard",
-    page_icon="🧠",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+try:
+    st.set_page_config(
+        page_title="NLP Dashboard",
+        page_icon="🧠",
+        layout="wide",
+        initial_sidebar_state="expanded",
+    )
+except Exception:
+    pass
 
 # ──────────────────────────────────────────────────────────────
 # Custom CSS  (mirrors app12 palette exactly)
@@ -144,6 +175,19 @@ hr { border-color: #e8e4de; margin: 20px 0; }
     display:inline-block; background:#10b981; color:#fff;
     border-radius:6px; padding:2px 8px; font-size:11px; font-weight:600;
 }
+.status-badge {
+    display:inline-block; border-radius:6px; padding:3px 10px;
+    font-size:12px; font-weight:600; margin-top:6px; margin-bottom:2px;
+}
+.status-badge-ok   { background:#d1fae5; color:#065f46; border:1px solid #10b981; }
+.status-badge-fail { background:#fee2e2; color:#991b1b; border:1px solid #ef4444; }
+.status-detail { font-size:11px; color:#6b7280; margin-left:6px; }
+.gpu-badge {
+    display:inline-block; border-radius:6px; padding:3px 10px;
+    font-size:12px; font-weight:600; margin-bottom:8px;
+}
+.gpu-badge-on  { background:#d1fae5; color:#065f46; border:1px solid #10b981; }
+.gpu-badge-off { background:#f3f4f6; color:#4b5563; border:1px solid #d1cdc7; }
 .kwic-context { color: #6b7280; font-size: 13px; }
 .kwic-hit     { color: #1a1a2e; font-weight: 700; background: #fef3c7;
                  padding: 0 3px; border-radius: 3px; }
@@ -159,6 +203,8 @@ def init_session_state():
         # Corpus
         "nlp_corpus_files": {},          # {filename: {"text": [str], "source": str}}
         "nlp_raw_corpus": None,          # DataFrame with columns: doc_id, text, source
+        "nlp_corpus_file_log": [],       # [{"filename","n_docs","appended_at"}] — running upload history
+        "nlp_last_append_msg": None,
         # Cleaning
         "nlp_cleaned_corpus": None,      # DataFrame: doc_id, text, cleaned_text, source
         "nlp_cleaning_log": [],          # [step strings]
@@ -168,6 +214,12 @@ def init_session_state():
         "nlp_vectorizer_type": None,     # "tfidf" | "count" | "sentence_transformer"
         "nlp_feature_names": None,       # list[str] for TF-IDF / Count
         "nlp_vec_reduced": None,         # 2D/3D projection for scatter
+        # PCA dimensionality reduction (distinct from the 2D/3D projection above)
+        "nlp_vectorized_pre_pca": None,  # backup of matrix/type/features before PCA reduction
+        "nlp_vectorizer_type_pre_pca": None,
+        "nlp_feature_names_pre_pca": None,
+        "nlp_pca_info": None,            # dict: n_components, explained_variance, cumulative
+        "nlp_pca_transformer": None,     # the fitted sklearn PCA object, needed to project new text at inference time
         # Classification
         "nlp_labels": None,              # Series — target column
         "nlp_label_col": None,
@@ -176,6 +228,8 @@ def init_session_state():
         "nlp_clf_name": None,
         "nlp_clf_results": None,         # dict with metrics
         "nlp_label_encoder": None,
+        "nlp_clf_pca_transformer": None, # PCA object used at train time, if any — needed to project new text at inference
+        "nlp_clf_vectorizer_type": None, # base vectorizer type ("tfidf"/"count"/"sentence_transformer") at train time
         # Topic Modeling / Clustering
         "nlp_topic_model": None,
         "nlp_topic_type": None,
@@ -194,9 +248,11 @@ init_session_state()
 # ──────────────────────────────────────────────────────────────
 @st.cache_resource
 def load_spacy():
+    """Load spaCy with only the components needed for lemmatisation.
+    Disabling 'ner' and 'parser' gives a significant speed boost."""
     try:
         import spacy
-        return spacy.load("en_core_web_sm")
+        return spacy.load("en_core_web_sm", disable=["ner", "parser"])
     except OSError:
         st.error(
             "spaCy model not found. Run: `python -m spacy download en_core_web_sm`"
@@ -204,10 +260,12 @@ def load_spacy():
         return None
 
 @st.cache_resource
-def load_sentence_transformer(model_name="all-MiniLM-L6-v2"):
+def load_sentence_transformer(model_name="all-MiniLM-L6-v2", device=None):
+    """device: 'cuda', 'cpu', or None (auto: GPU if available)."""
     try:
         from sentence_transformers import SentenceTransformer
-        return SentenceTransformer(model_name)
+        device = device or ("cuda" if GPU_INFO["available"] else "cpu")
+        return SentenceTransformer(model_name, device=device)
     except Exception as e:
         st.error(f"Could not load Sentence Transformer: {e}")
         return None
@@ -292,6 +350,62 @@ def cleaning_log_banner():
 
 
 # ──────────────────────────────────────────────────────────────
+# Stateful "Apply" buttons
+# Every technique-applying button in the app uses this pair of
+# helpers so the outcome (success / failure) is written to
+# session_state and therefore SURVIVES the st.rerun() that follows
+# it — instead of a st.success() banner that flashes and vanishes.
+# ──────────────────────────────────────────────────────────────
+def stateful_apply_button(label, status_key, key=None, **button_kwargs):
+    """Render a button and, right below it, a persistent status badge
+    reflecting the outcome of the LAST time it was clicked (if any).
+    Returns True exactly when the button was clicked this run."""
+    clicked = st.button(label, key=key or f"btn_{status_key}", **button_kwargs)
+    status = st.session_state.get(status_key)
+    if status:
+        if status["ok"]:
+            st.markdown(
+                f"<span class='status-badge status-badge-ok'>✅ Applied Successfully</span>"
+                f"<span class='status-detail'>{status['msg']}</span>",
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                f"<span class='status-badge status-badge-fail'>❌ Unsuccessful</span>"
+                f"<span class='status-detail'>{status['msg']}</span>",
+                unsafe_allow_html=True,
+            )
+    return clicked
+
+def set_apply_status(status_key, ok, msg=""):
+    st.session_state[status_key] = {"ok": bool(ok), "msg": msg, "ts": time.time()}
+
+def is_nonnegative(X):
+    """True if the matrix/array has no negative entries (NMF/MultinomialNB requirement)."""
+    try:
+        import scipy.sparse as sp
+        if sp.issparse(X):
+            return X.min() >= 0 if X.nnz > 0 else True
+    except ImportError:
+        pass
+    return bool(np.all(np.asarray(X) >= 0))
+
+def gpu_status_badge():
+    """Small persistent badge showing whether GPU acceleration is active."""
+    if GPU_INFO["available"]:
+        st.markdown(
+            f"<span class='gpu-badge gpu-badge-on'>🎮 GPU active — {GPU_INFO['name']}</span>",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            f"<span class='gpu-badge gpu-badge-off'>💻 CPU only "
+            f"({GPU_INFO['reason'] or 'no GPU detected'})</span>",
+            unsafe_allow_html=True,
+        )
+
+
+# ──────────────────────────────────────────────────────────────
 # File loading
 # ──────────────────────────────────────────────────────────────
 import io
@@ -356,6 +470,7 @@ def load_text_file(uploaded_file):
 def render_sidebar():
     with st.sidebar:
         st.markdown("### 🧠 NLP Dashboard")
+        gpu_status_badge()
         st.markdown("---")
 
         sb_t1, sb_t2 = st.tabs(["📚 Corpus", "💾 Results"])
@@ -366,13 +481,26 @@ def render_sidebar():
                 st.info("No corpus loaded yet.")
             else:
                 st.markdown(f"**Documents:** {len(raw):,}")
-                st.markdown(f"**Sources:** {raw['source'].nunique()}")
+                src_count = raw['source'].nunique() if 'source' in raw.columns else 'N/A'
+                st.markdown(f"**Sources:** {src_count}")
                 cleaned = st.session_state.nlp_cleaned_corpus
                 if cleaned is not None:
                     st.markdown(f"**Cleaned:** ✅ {len(st.session_state.nlp_cleaning_log)} step(s)")
                 vec_type = st.session_state.nlp_vectorizer_type
                 if vec_type:
-                    st.markdown(f"**Vectorized:** ✅ {vec_type}")
+                    vec_label = {
+                        "tfidf": "TF-IDF", "count": "Count (BoW)",
+                        "sentence_transformer": "Sentence Transformer embeddings",
+                        "pca_reduced": "PCA-reduced",
+                    }.get(vec_type, vec_type)
+                    pca_info = st.session_state.nlp_pca_info
+                    if vec_type == "pca_reduced" and pca_info:
+                        base = {
+                            "tfidf": "TF-IDF", "count": "Count (BoW)",
+                            "sentence_transformer": "Sentence Transformer",
+                        }.get(st.session_state.nlp_vectorizer_type_pre_pca, "features")
+                        vec_label = f"{base} → PCA ({pca_info['n_components']} dims)"
+                    st.markdown(f"**Vectorized:** ✅ {vec_label}")
 
         with sb_t2:
             saved_keys = [k for k in st.session_state if k.startswith("nlp_saved_")]
@@ -430,20 +558,6 @@ def tab_corpus_manager():
 
     pending = {}   # {filename: list[str]}  awaiting append
 
-    if uploaded:
-        for f in uploaded:
-            ext = f.name.rsplit(".", 1)[-1].lower()
-            try:
-                result, meta = load_text_file(f)
-            except Exception as e:
-                st.error(f"**{f.name}**: {e}")
-                continue
-
-            if ext in ("txt", "log"):
-                # meta = info string, result = list[str]
-                docs = result
-                st.success(f"**{f.name}** — {meta}")
-                pending[f.name] = docs
 
     for f in uploaded:
             ext = f.name.rsplit(".", 1)[-1].lower()
@@ -497,7 +611,7 @@ def tab_corpus_manager():
             for fname, docs in pending.items():
                 for doc in docs:
                     new_rows.append({"text": doc, "source": fname})
-            new_df = pd.DataFrame(new_rows)
+            new_df = pd.DataFrame(new_rows, columns=["text", "source"]) if new_rows else pd.DataFrame(columns=["text", "source"])
             existing = st.session_state.nlp_raw_corpus
             if existing is not None:
                 combined = pd.concat([existing, new_df], ignore_index=True)
@@ -505,21 +619,55 @@ def tab_corpus_manager():
                 combined = new_df
             combined["doc_id"] = range(len(combined))
             st.session_state.nlp_raw_corpus = combined
+
+            # Track which files were appended, so the corpus contents are
+            # always visible — not just a one-time upload confirmation.
+            file_log = st.session_state.get("nlp_corpus_file_log") or []
+            for fname, docs in pending.items():
+                file_log.append({
+                    "filename": fname,
+                    "n_docs": len(docs),
+                    "appended_at": time.strftime("%H:%M:%S"),
+                })
+            st.session_state.nlp_corpus_file_log = file_log
+
             # Reset downstream state when corpus changes
             st.session_state.nlp_cleaned_corpus = None
             st.session_state.nlp_cleaning_log   = []
             st.session_state.nlp_vectorized      = None
             st.session_state.nlp_vectorizer_type = None
-            st.success(f"✅ Appended {len(new_rows):,} documents → corpus now {len(combined):,} docs.")
+            new_names = ", ".join(pending.keys())
+            st.session_state["nlp_last_append_msg"] = (
+                f"Appended **{len(pending)} file(s)** ({new_names}) — "
+                f"{len(new_rows):,} documents. Corpus now contains "
+                f"**{combined['source'].nunique()} file(s)**, {len(combined):,} documents total."
+            )
             st.rerun()
     with col_b:
         if st.button("🗑 Reset Corpus", key="btn_reset_corpus"):
             for key in ["nlp_raw_corpus", "nlp_cleaned_corpus", "nlp_vectorized",
                         "nlp_vectorizer_type", "nlp_vectorizer_obj", "nlp_vec_reduced",
-                        "nlp_topic_results", "nlp_cluster_results", "nlp_clf_results"]:
+                        "nlp_topic_results", "nlp_cluster_results", "nlp_clf_results",
+                        "nlp_last_append_msg", "nlp_feature_names",
+                        "nlp_vectorized_pre_pca", "nlp_vectorizer_type_pre_pca",
+                        "nlp_feature_names_pre_pca", "nlp_pca_info", "nlp_pca_transformer",
+                        "nlp_clf_pca_transformer", "nlp_clf_vectorizer_type",
+                        "nlp_trained_clf", "nlp_clf_features", "nlp_label_encoder"]:
                 st.session_state[key] = None
             st.session_state.nlp_cleaning_log = []
+            st.session_state.nlp_corpus_file_log = []
             st.rerun()
+
+    if st.session_state.get("nlp_last_append_msg"):
+        st.success(f"✅ {st.session_state['nlp_last_append_msg']}")
+
+    # ── Persistent "files in corpus" list — grows with every append ──
+    file_log = st.session_state.get("nlp_corpus_file_log") or []
+    if file_log:
+        with st.expander(f"📁 Files in Corpus ({len(file_log)} upload event(s))", expanded=True):
+            log_df = pd.DataFrame(file_log)[["filename", "n_docs", "appended_at"]]
+            log_df.columns = ["File", "Documents Added", "Appended At"]
+            st.dataframe(log_df, use_container_width=True, hide_index=True)
 
     # ── 3. Preview ──
     corpus = st.session_state.nlp_raw_corpus
@@ -616,25 +764,29 @@ def tab_text_cleaning():
         st.markdown("**Preview (first doc):**")
         st.code(preview, language=None)
 
-        if st.button("✅ Apply Noise Removal", key="btn_cl_noise"):
-            def noise_clean(text):
-                t = str(text)
-                if do_lower:  t = t.lower()
-                if do_html:   t = re.sub(r"<[^>]+>", " ", t)
-                if do_urls:   t = re.sub(r"https?://\S+|www\.\S+", " ", t)
-                if do_punct:  t = re.sub(r"[^\w\s]", " ", t)
-                if do_digits: t = re.sub(r"\d+", " ", t)
-                if do_extra:  t = re.sub(r"\s+", " ", t).strip()
-                return t
-            with st.spinner("Applying noise removal…"):
-                work_series = work_series.apply(noise_clean)
-            ops = [x for x, f in [
-                ("lowercase", do_lower), ("strip HTML", do_html), ("remove URLs", do_urls),
-                ("remove punctuation", do_punct), ("remove digits", do_digits),
-                ("collapse whitespace", do_extra)
-            ] if f]
-            _commit_cleaning(corpus, work_series, f"Noise removal: {', '.join(ops)}")
-            st.success("✅ Noise removal applied.")
+        if stateful_apply_button("✅ Apply Noise Removal", "status_cl_noise"):
+            try:
+                def noise_clean(text):
+                    t = str(text)
+                    if do_lower:  t = t.lower()
+                    if do_html:   t = re.sub(r"<[^>]+>", " ", t)
+                    if do_urls:   t = re.sub(r"https?://\S+|www\.\S+", " ", t)
+                    if do_punct:  t = re.sub(r"[^\w\s]", " ", t)
+                    if do_digits: t = re.sub(r"\d+", " ", t)
+                    if do_extra:  t = re.sub(r"\s+", " ", t).strip()
+                    return t
+                with st.spinner("Applying noise removal…"):
+                    work_series = work_series.apply(noise_clean)
+                ops = [x for x, f in [
+                    ("lowercase", do_lower), ("strip HTML", do_html), ("remove URLs", do_urls),
+                    ("remove punctuation", do_punct), ("remove digits", do_digits),
+                    ("collapse whitespace", do_extra)
+                ] if f]
+                _commit_cleaning(corpus, work_series, f"Noise removal: {', '.join(ops)}")
+                set_apply_status("status_cl_noise", True,
+                                  f"{len(ops)} operation(s) on {len(work_series):,} docs")
+            except Exception as e:
+                set_apply_status("status_cl_noise", False, str(e))
             st.rerun()
 
     # ── Step 2: Stopword Removal ──
@@ -660,15 +812,18 @@ def tab_text_cleaning():
         st.markdown("**Preview (first doc after removal):**")
         st.code(" ".join(filtered_sample[:60]), language=None)
 
-        if st.button("✅ Apply Stopword Removal", key="btn_cl_sw"):
-            sw = custom_sw if custom_sw else get_stopwords_spacy()
-            with st.spinner("Removing stopwords…"):
-                work_series = work_series.apply(
-                    lambda t: " ".join(tok for tok in str(t).split() if tok.lower() not in sw)
-                )
-            src_label = "custom" if custom_sw else "spaCy default"
-            _commit_cleaning(corpus, work_series, f"Stopword removal ({src_label}, {len(sw):,} words)")
-            st.success("✅ Stopwords removed.")
+        if stateful_apply_button("✅ Apply Stopword Removal", "status_cl_sw"):
+            try:
+                sw = custom_sw if custom_sw else get_stopwords_spacy()
+                with st.spinner("Removing stopwords…"):
+                    work_series = work_series.apply(
+                        lambda t: " ".join(tok for tok in str(t).split() if tok.lower() not in sw)
+                    )
+                src_label = "custom" if custom_sw else "spaCy default"
+                _commit_cleaning(corpus, work_series, f"Stopword removal ({src_label}, {len(sw):,} words)")
+                set_apply_status("status_cl_sw", True, f"{src_label} list, {len(sw):,} words")
+            except Exception as e:
+                set_apply_status("status_cl_sw", False, str(e))
             st.rerun()
 
     # ── Step 3: Stemming / Lemmatisation ──
@@ -683,35 +838,41 @@ def tab_text_cleaning():
             "Stemming: _running_ → _run_ (rule-based, faster)."
         )
 
-        if st.button("✅ Apply", key="btn_cl_morph"):
+        if stateful_apply_button("✅ Apply", "status_cl_morph"):
             if "Lemmatisation" in morph_method:
-                nlp = load_spacy()
-                if nlp is None:
-                    st.error("spaCy model not available.")
-                else:
-                    with st.spinner("Lemmatising with spaCy (may take a moment)…"):
-                        def lemmatise(text):
-                            doc = nlp(str(text))
-                            return " ".join(tok.lemma_ for tok in doc if not tok.is_space)
-                        work_series = work_series.apply(lemmatise)
+                try:
+                    nlp = load_spacy()
+                    if nlp is None:
+                        raise RuntimeError("spaCy model not available (run: python -m spacy download en_core_web_sm).")
+                    n_docs = len(work_series)
+                    with st.spinner(f"Lemmatising {n_docs:,} docs with spaCy (batched)…"):
+                        texts = work_series.astype(str).tolist()
+                        lemmatised = [
+                            " ".join(tok.lemma_ for tok in doc if not tok.is_space)
+                            for doc in nlp.pipe(texts, batch_size=512, n_process=1)
+                        ]
+                        work_series = pd.Series(lemmatised, index=work_series.index)
                     _commit_cleaning(corpus, work_series, "spaCy lemmatisation")
-                    st.success("✅ Lemmatisation applied.")
-                    st.rerun()
+                    set_apply_status("status_cl_morph", True, f"Lemmatised {n_docs:,} docs")
+                except Exception as e:
+                    set_apply_status("status_cl_morph", False, str(e))
             else:
                 try:
-                    from nltk.stem import PorterStemmer
-                    import nltk; nltk.download("punkt", quiet=True)
-                except ImportError:
-                    st.error("NLTK not installed. Run: pip install nltk")
-                    return
-                ps = PorterStemmer()
-                with st.spinner("Stemming…"):
-                    work_series = work_series.apply(
-                        lambda t: " ".join(ps.stem(tok) for tok in str(t).split())
-                    )
-                _commit_cleaning(corpus, work_series, "Porter stemming")
-                st.success("✅ Stemming applied.")
-                st.rerun()
+                    try:
+                        from nltk.stem import PorterStemmer
+                        import nltk; nltk.download("punkt", quiet=True)
+                    except ImportError:
+                        raise RuntimeError("NLTK not installed. Run: pip install nltk")
+                    ps = PorterStemmer()
+                    with st.spinner("Stemming…"):
+                        work_series = work_series.apply(
+                            lambda t: " ".join(ps.stem(tok) for tok in str(t).split())
+                        )
+                    _commit_cleaning(corpus, work_series, "Porter stemming")
+                    set_apply_status("status_cl_morph", True, f"Stemmed {len(work_series):,} docs")
+                except Exception as e:
+                    set_apply_status("status_cl_morph", False, str(e))
+            st.rerun()
 
     # ── Step 4: Tokenisation preview ──
     with st.expander("Step 4 — 🔤 Tokenisation Preview"):
@@ -963,7 +1124,12 @@ def tab_vectorization():
 
     corpus_info_banner(st.session_state.nlp_raw_corpus, f"Active text: {label}")
 
-    vec_tabs = st.tabs(["📐 Traditional (TF-IDF / Count)", "🤖 Sentence Transformers", "🗺 Projection (PCA / t-SNE)"])
+    vec_tabs = st.tabs([
+        "📐 Traditional (TF-IDF / Count)",
+        "🤖 Sentence Transformers",
+        "🎚 PCA Reduction",
+        "🗺 Projection (PCA / t-SNE)",
+    ])
 
     # ── Traditional ──
     with vec_tabs[0]:
@@ -979,24 +1145,32 @@ def tab_vectorization():
         ng_min = st.select_slider("N-gram min", options=[1, 2, 3], value=1, key="vec_ng_min")
         ng_max = st.select_slider("N-gram max", options=[1, 2, 3], value=1, key="vec_ng_max")
 
-        if st.button("🚀 Vectorize", key="btn_vec_trad"):
-            from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
-            docs = text_series.fillna("").astype(str).tolist()
-            with st.spinner(f"Fitting {vec_type} vectorizer on {len(docs):,} docs…"):
-                if vec_type == "TF-IDF":
-                    vec = TfidfVectorizer(max_features=max_feat,
-                                         ngram_range=(ng_min, ng_max),
-                                         sublinear_tf=True)
-                else:
-                    vec = CountVectorizer(max_features=max_feat,
-                                         ngram_range=(ng_min, ng_max))
-                X = vec.fit_transform(docs)
-            st.session_state.nlp_vectorized      = X
-            st.session_state.nlp_vectorizer_obj  = vec
-            st.session_state.nlp_vectorizer_type = "tfidf" if vec_type == "TF-IDF" else "count"
-            st.session_state.nlp_feature_names   = vec.get_feature_names_out().tolist()
-            st.session_state.nlp_vec_reduced      = None
-            st.success(f"✅ Vectorized → matrix shape: {X.shape[0]:,} × {X.shape[1]:,}")
+        if stateful_apply_button("🚀 Vectorize", "status_vec_trad"):
+            try:
+                from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
+                docs = text_series.fillna("").astype(str).tolist()
+                with st.spinner(f"Fitting {vec_type} vectorizer on {len(docs):,} docs…"):
+                    if vec_type == "TF-IDF":
+                        vec = TfidfVectorizer(max_features=max_feat,
+                                             ngram_range=(ng_min, ng_max),
+                                             sublinear_tf=True)
+                    else:
+                        vec = CountVectorizer(max_features=max_feat,
+                                             ngram_range=(ng_min, ng_max))
+                    X = vec.fit_transform(docs)
+                st.session_state.nlp_vectorized      = X
+                st.session_state.nlp_vectorizer_obj  = vec
+                st.session_state.nlp_vectorizer_type = "tfidf" if vec_type == "TF-IDF" else "count"
+                st.session_state.nlp_feature_names   = vec.get_feature_names_out().tolist()
+                st.session_state.nlp_vec_reduced      = None
+                # Clear any stale PCA-reduction state — it referred to the old matrix
+                st.session_state.nlp_vectorized_pre_pca = None
+                st.session_state.nlp_pca_info = None
+                set_apply_status("status_vec_trad", True,
+                                  f"matrix shape {X.shape[0]:,} × {X.shape[1]:,}")
+            except Exception as e:
+                set_apply_status("status_vec_trad", False, str(e))
+            st.rerun()
 
         if (st.session_state.nlp_vectorizer_type in ("tfidf", "count")
                 and st.session_state.nlp_vectorized is not None):
@@ -1029,49 +1203,173 @@ def tab_vectorization():
     with vec_tabs[1]:
         st.subheader("Sentence Transformers (Semantic Embeddings)")
         st.caption(
-            "Uses a pre-trained transformer to create dense 384-dim embeddings. "
-            "GPU will be used automatically if available."
+            "Uses a pre-trained transformer to create dense embeddings."
         )
+        gpu_status_badge()
         st.info("ℹ️ First run downloads the model (~90 MB for MiniLM). Subsequent runs use cache.")
-        model_name = st.selectbox(
-            "Model",
-            ["all-MiniLM-L6-v2", "all-mpnet-base-v2", "paraphrase-MiniLM-L3-v2"],
-            key="st_model_name",
-        )
-        batch_size  = st.slider("Batch size", 16, 256, 64, key="st_batch")
 
-        if st.button("🚀 Generate Embeddings", key="btn_vec_st"):
+        s1, s2 = st.columns(2)
+        with s1:
+            model_name = st.selectbox(
+                "Model",
+                ["all-MiniLM-L6-v2", "all-mpnet-base-v2", "paraphrase-MiniLM-L3-v2"],
+                key="st_model_name",
+            )
+        with s2:
+            device_choice = st.selectbox(
+                "Device",
+                ["Auto (GPU if available)", "Force CPU"] + (["Force GPU"] if GPU_INFO["available"] else []),
+                key="st_device_choice",
+            )
+
+        # GPU lets us push much bigger batches through in one shot
+        default_batch = 128 if GPU_INFO["available"] else 32
+        batch_size = st.slider("Batch size", 16, 512, default_batch, key="st_batch")
+        use_fp16 = False
+        if GPU_INFO["available"] and device_choice != "Force CPU":
+            use_fp16 = st.checkbox(
+                "Use FP16 half-precision (faster on GPU, negligible accuracy loss)",
+                value=True, key="st_fp16",
+            )
+
+        if stateful_apply_button("🚀 Generate Embeddings", "status_vec_st"):
             try:
-                model = load_sentence_transformer(model_name)
+                device = ("cpu" if device_choice == "Force CPU"
+                          else "cuda" if (device_choice == "Force GPU" or GPU_INFO["available"])
+                          else "cpu")
+                model = load_sentence_transformer(model_name, device=device)
                 if model is None:
-                    st.error("Could not load model.")
-                else:
-                    docs = text_series.fillna("").astype(str).tolist()
-                    with st.spinner(f"Encoding {len(docs):,} docs with {model_name}…"):
-                        embeddings = model.encode(
-                            docs, batch_size=batch_size, show_progress_bar=False
-                        )
-                    st.session_state.nlp_vectorized      = embeddings
-                    st.session_state.nlp_vectorizer_obj  = model
-                    st.session_state.nlp_vectorizer_type = "sentence_transformer"
-                    st.session_state.nlp_feature_names   = None
-                    st.session_state.nlp_vec_reduced      = None
-                    st.success(f"✅ Embeddings shape: {embeddings.shape[0]:,} × {embeddings.shape[1]}")
-
-                    # GPU status
-                    try:
-                        import torch
-                        if torch.cuda.is_available():
-                            st.markdown(f"<div class='stat-card stat-after'>🎮 GPU: {torch.cuda.get_device_name(0)}</div>",
-                                        unsafe_allow_html=True)
-                    except ImportError:
-                        pass
+                    raise RuntimeError("Could not load model.")
+                if use_fp16 and device == "cuda":
+                    model = model.half()
+                docs = text_series.fillna("").astype(str).tolist()
+                t0 = time.time()
+                with st.spinner(f"Encoding {len(docs):,} docs with {model_name} on {device.upper()}…"):
+                    embeddings = model.encode(
+                        docs, batch_size=batch_size, show_progress_bar=False
+                    )
+                elapsed = time.time() - t0
+                st.session_state.nlp_vectorized      = embeddings
+                st.session_state.nlp_vectorizer_obj  = model
+                st.session_state.nlp_vectorizer_type = "sentence_transformer"
+                st.session_state.nlp_feature_names   = None
+                st.session_state.nlp_vec_reduced      = None
+                st.session_state.nlp_vectorized_pre_pca = None
+                st.session_state.nlp_pca_info = None
+                set_apply_status(
+                    "status_vec_st", True,
+                    f"shape {embeddings.shape[0]:,} × {embeddings.shape[1]} on {device.upper()} in {elapsed:.1f}s"
+                )
             except Exception as e:
-                st.error(f"Error: {e}")
+                set_apply_status("status_vec_st", False, str(e))
+            st.rerun()
+
+    # ── PCA Dimensionality Reduction ──
+    with vec_tabs[2]:
+        st.subheader("PCA Dimensionality Reduction")
+        st.caption(
+            "Distinct from the 2D/3D **Projection** tab (which is purely for plotting). "
+            "This reduces the *actual* feature matrix used downstream — useful before "
+            "Classification or Clustering when you have hundreds/thousands of features "
+            "(e.g. TF-IDF vocab, or 384–768-dim embeddings). Fewer, decorrelated "
+            "components can mean faster training and less noise, at the cost of some "
+            "explained variance. Note: after reduction, components are no longer tied to "
+            "individual words, so **Topic Modeling (LDA/NMF)** — which needs a word "
+            "vocabulary — will require the original (un-reduced) TF-IDF/Count matrix."
+        )
+
+        if st.session_state.nlp_vectorized is None:
+            st.info("Run vectorization first (TF-IDF, Count, or Sentence Transformers).")
+        else:
+            X_raw = st.session_state.nlp_vectorized
+            try:
+                import scipy.sparse as sp
+                X_check = X_raw.toarray() if sp.issparse(X_raw) else X_raw
+            except ImportError:
+                X_check = X_raw
+            n_samples, n_features = X_check.shape
+            max_comp = max(2, min(n_samples, n_features) - 1)
+
+            if st.session_state.nlp_pca_info:
+                info = st.session_state.nlp_pca_info
+                st.markdown(f"""
+                <div class='stat-card stat-after'>
+                    ✅ Active matrix is <b>PCA-reduced</b>: {info['n_components']} components,
+                    {info['cumulative_variance']*100:.1f}% cumulative variance retained
+                    (reduced from {info['original_features']:,} original features).
+                </div>""", unsafe_allow_html=True)
+                if st.button("↺ Revert to original (un-reduced) features", key="btn_pca_revert"):
+                    st.session_state.nlp_vectorized      = st.session_state.nlp_vectorized_pre_pca
+                    st.session_state.nlp_vectorizer_type = st.session_state.nlp_vectorizer_type_pre_pca
+                    st.session_state.nlp_feature_names   = st.session_state.nlp_feature_names_pre_pca
+                    st.session_state.nlp_vectorized_pre_pca = None
+                    st.session_state.nlp_pca_info = None
+                    st.session_state.nlp_pca_transformer = None
+                    st.rerun()
+
+            else:
+                if st.button("📈 Compute Explained Variance Curve", key="btn_pca_curve"):
+                    from sklearn.decomposition import PCA as skPCA
+                    with st.spinner("Fitting PCA across component range…"):
+                        curve_n = min(max_comp, 100)
+                        pca_curve = skPCA(n_components=curve_n, random_state=42).fit(X_check)
+                        cum_var = np.cumsum(pca_curve.explained_variance_ratio_)
+                    fig_cum = px.line(
+                        x=list(range(1, curve_n + 1)), y=cum_var, markers=True,
+                        template=pt(), title="Cumulative Explained Variance vs. Components",
+                        labels={"x": "Number of Components", "y": "Cumulative Variance Explained"},
+                        color_discrete_sequence=[COLOR_SEQ[0]],
+                    )
+                    fig_cum.add_hline(y=0.9, line_dash="dot", annotation_text="90%")
+                    st.plotly_chart(fig_cum, use_container_width=True)
+                    n_for_90 = int(np.argmax(cum_var >= 0.9) + 1) if np.any(cum_var >= 0.9) else curve_n
+                    st.caption(f"≈{n_for_90} components needed to reach 90% variance "
+                               f"(out of {n_features:,} original features).")
+
+                n_components = st.number_input(
+                    f"Number of components (2 – {max_comp:,})",
+                    min_value=2, max_value=max_comp,
+                    value=min(50, max_comp), step=1, key="pca_n_components",
+                )
+
+                if stateful_apply_button("🎚 Reduce with PCA", "status_pca_reduce"):
+                    try:
+                        from sklearn.decomposition import PCA as skPCA
+                        with st.spinner(f"Reducing {n_features:,} → {n_components} components…"):
+                            pca = skPCA(n_components=int(n_components), random_state=42)
+                            X_reduced = pca.fit_transform(X_check)
+                            cum_var = float(np.sum(pca.explained_variance_ratio_))
+
+                        # Back up the pre-PCA matrix so it can be restored
+                        st.session_state.nlp_vectorized_pre_pca      = X_raw
+                        st.session_state.nlp_vectorizer_type_pre_pca = st.session_state.nlp_vectorizer_type
+                        st.session_state.nlp_feature_names_pre_pca   = st.session_state.nlp_feature_names
+
+                        st.session_state.nlp_vectorized      = X_reduced
+                        st.session_state.nlp_vectorizer_type = "pca_reduced"
+                        st.session_state.nlp_feature_names   = None
+                        st.session_state.nlp_vec_reduced      = None
+                        st.session_state.nlp_pca_transformer = pca
+                        st.session_state.nlp_pca_info = {
+                            "n_components": int(n_components),
+                            "cumulative_variance": cum_var,
+                            "original_features": n_features,
+                        }
+                        set_apply_status("status_pca_reduce", True,
+                                          f"{n_features:,} → {n_components} dims, "
+                                          f"{cum_var*100:.1f}% variance retained")
+                    except Exception as e:
+                        set_apply_status("status_pca_reduce", False, str(e))
+                    st.rerun()
 
     # ── Projection ──
-    with vec_tabs[2]:
+    with vec_tabs[3]:
         st.subheader("Dimensionality Reduction for Visualisation")
+        st.caption(
+            "Capped at 2–3 dimensions on purpose — this is for plotting a scatter chart, "
+            "which only humans-in-3D can read. For reducing the *feature matrix* itself "
+            "(any number of components), use the **PCA Reduction** tab instead."
+        )
 
         if st.session_state.nlp_vectorized is None:
             st.info("Run vectorization first (TF-IDF or Sentence Transformers).")
@@ -1094,79 +1392,90 @@ def tab_vectorization():
                 )
             perplexity = st.slider("Perplexity", 5, 50, 30, key="tsne_perp")
 
-        if st.button("🗺 Run Projection", key="btn_proj"):
-            from sklearn.decomposition import PCA as skPCA
-            X = st.session_state.nlp_vectorized
-
-            # Convert sparse → dense if needed
+        if stateful_apply_button("🗺 Run Projection", "status_proj"):
             try:
-                import scipy.sparse as sp
-                if sp.issparse(X):
-                    X = X.toarray()
-            except ImportError:
-                pass
+                from sklearn.decomposition import PCA as skPCA
+                X = st.session_state.nlp_vectorized
 
-            # First reduce to 50 dims with PCA for t-SNE speed
-            n_samples = X.shape[0]
-            with st.spinner("Running projection…"):
-                if proj_method == "PCA":
-                    n_comp = proj_dims
-                    reducer = skPCA(n_components=n_comp, random_state=42)
-                    coords  = reducer.fit_transform(X)
+                # Convert sparse → dense if needed
+                try:
+                    import scipy.sparse as sp
+                    if sp.issparse(X):
+                        X = X.toarray()
+                except ImportError:
+                    pass
+
+                n_samples = X.shape[0]
+                with st.spinner("Running projection…"):
+                    if proj_method == "PCA":
+                        n_comp = proj_dims
+                        reducer = skPCA(n_components=n_comp, random_state=42)
+                        coords  = reducer.fit_transform(X)
+                    else:
+                        from sklearn.manifold import TSNE
+                        sample_idx = (np.random.choice(n_samples, min(max_tsne, n_samples),
+                                                       replace=False)
+                                      if n_samples > max_tsne else np.arange(n_samples))
+                        X_sub = X[sample_idx]
+                        pre_n = min(50, X_sub.shape[1])
+                        pre_pca = skPCA(n_components=pre_n, random_state=42)
+                        X_pre = pre_pca.fit_transform(X_sub)
+                        eff_perplexity = min(perplexity, max(5, len(sample_idx) // 4))
+                        tsne  = TSNE(n_components=proj_dims, perplexity=eff_perplexity,
+                                     random_state=42, n_iter=300)
+                        coords = tsne.fit_transform(X_pre)
+
+                if proj_method == "t-SNE":
+                    plot_idx = sample_idx
                 else:
-                    from sklearn.manifold import TSNE
-                    sample_idx = (np.random.choice(n_samples, min(max_tsne, n_samples),
-                                                   replace=False)
-                                  if n_samples > max_tsne else np.arange(n_samples))
-                    X_sub = X[sample_idx]
-                    # Pre-reduce
-                    pre_n = min(50, X_sub.shape[1])
-                    pre_pca = skPCA(n_components=pre_n, random_state=42)
-                    X_pre = pre_pca.fit_transform(X_sub)
-                    tsne  = TSNE(n_components=proj_dims, perplexity=perplexity,
-                                 random_state=42, n_iter=300)
-                    coords = tsne.fit_transform(X_pre)
+                    plot_idx = np.arange(n_samples)
 
-            # Build plot df
-            if proj_method == "t-SNE":
-                plot_idx = sample_idx
-            else:
-                plot_idx = np.arange(n_samples)
+                src_vals  = corpus_df["source"].iloc[plot_idx].values if len(corpus_df) >= len(plot_idx) else ["unknown"] * len(plot_idx)
+                text_vals = text_series.iloc[plot_idx].astype(str).str[:80].values if len(text_series) >= len(plot_idx) else [""] * len(plot_idx)
 
-            src_vals  = corpus_df["source"].iloc[plot_idx].values if len(corpus_df) >= len(plot_idx) else ["unknown"] * len(plot_idx)
-            text_vals = text_series.iloc[plot_idx].astype(str).str[:80].values if len(text_series) >= len(plot_idx) else [""] * len(plot_idx)
+                if proj_dims == 2:
+                    plot_df = pd.DataFrame({
+                        "x": coords[:, 0], "y": coords[:, 1],
+                        "source": src_vals, "text_preview": text_vals,
+                    })
+                else:
+                    plot_df = pd.DataFrame({
+                        "x": coords[:, 0], "y": coords[:, 1], "z": coords[:, 2],
+                        "source": src_vals, "text_preview": text_vals,
+                    })
 
-            if proj_dims == 2:
-                plot_df = pd.DataFrame({
-                    "x": coords[:, 0], "y": coords[:, 1],
-                    "source": src_vals, "text_preview": text_vals,
-                })
+                st.session_state.nlp_vec_reduced = plot_df
+                st.session_state["_proj_fig_meta"] = {"method": proj_method, "dims": proj_dims}
+                if proj_method == "PCA":
+                    reducer_pca = skPCA(n_components=proj_dims, random_state=42)
+                    reducer_pca.fit_transform(X)
+                    st.session_state["_proj_exp_var"] = reducer_pca.explained_variance_ratio_.tolist()
+                else:
+                    st.session_state["_proj_exp_var"] = None
+                set_apply_status("status_proj", True, f"{proj_method} {proj_dims}D on {n_samples:,} docs")
+            except Exception as e:
+                set_apply_status("status_proj", False, str(e))
+            st.rerun()
+
+        plot_df = st.session_state.nlp_vec_reduced
+        meta = st.session_state.get("_proj_fig_meta")
+        if plot_df is not None and meta:
+            if meta["dims"] == 2:
                 fig_proj = px.scatter(
                     plot_df, x="x", y="y", color="source",
-                    hover_data={"text_preview": True},
-                    template=pt(),
-                    title=f"{proj_method} 2D Projection",
-                    color_discrete_sequence=COLOR_SEQ,
+                    hover_data={"text_preview": True}, template=pt(),
+                    title=f"{meta['method']} 2D Projection", color_discrete_sequence=COLOR_SEQ,
                 )
             else:
-                plot_df = pd.DataFrame({
-                    "x": coords[:, 0], "y": coords[:, 1], "z": coords[:, 2],
-                    "source": src_vals, "text_preview": text_vals,
-                })
                 fig_proj = px.scatter_3d(
                     plot_df, x="x", y="y", z="z", color="source",
-                    hover_data={"text_preview": True},
-                    title=f"{proj_method} 3D Projection",
-                    color_discrete_sequence=COLOR_SEQ,
+                    hover_data={"text_preview": True}, template=pt(),
+                    title=f"{meta['method']} 3D Projection", color_discrete_sequence=COLOR_SEQ,
                 )
-
-            st.session_state.nlp_vec_reduced = plot_df
             st.plotly_chart(fig_proj, use_container_width=True)
 
-            if proj_method == "PCA":
-                reducer_pca = skPCA(n_components=proj_dims, random_state=42)
-                reducer_pca.fit_transform(X)
-                exp_var = reducer_pca.explained_variance_ratio_
+            exp_var = st.session_state.get("_proj_exp_var")
+            if meta["method"] == "PCA" and exp_var:
                 ev1, ev2 = st.columns(2)
                 ev1.metric("Variance explained (PC1)", f"{exp_var[0]*100:.1f}%")
                 ev2.metric("Variance explained (PC2)", f"{exp_var[1]*100:.1f}%")
@@ -1224,66 +1533,82 @@ def tab_classification():
     test_size = st.slider("Test set size", 0.1, 0.4, 0.2, step=0.05, key="clf_test_size")
 
     vec_type = st.session_state.nlp_vectorizer_type
+    X_active = st.session_state.nlp_vectorized
+    matrix_nonneg = is_nonnegative(X_active)
 
-    if clf_name == "Multinomial Naïve Bayes" and vec_type == "sentence_transformer":
+    if clf_name == "Multinomial Naïve Bayes" and not matrix_nonneg:
+        reason = ("Sentence Transformer embeddings" if vec_type == "sentence_transformer"
+                  else "PCA-reduced features" if vec_type == "pca_reduced"
+                  else "the active matrix")
         st.warning(
-            "Multinomial Naïve Bayes requires non-negative input. "
-            "Use TF-IDF / Count vectorizer or choose a different classifier."
+            f"Multinomial Naïve Bayes requires non-negative input, but {reason} "
+            "contain negative values. Use TF-IDF / Count vectorizer (un-reduced) "
+            "or choose a different classifier."
         )
         return
 
-    if st.button("🚀 Train Classifier", key="btn_train_clf"):
-        from sklearn.preprocessing import LabelEncoder
-        from sklearn.model_selection import train_test_split
-        from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
-        from sklearn.naive_bayes import MultinomialNB
-        from sklearn.svm import LinearSVC
-        from sklearn.linear_model import LogisticRegression
-        from sklearn.ensemble import RandomForestClassifier
-
-        X = st.session_state.nlp_vectorized
+    if stateful_apply_button("🚀 Train Classifier", "status_train_clf"):
         try:
-            import scipy.sparse as sp
-            if sp.issparse(X):
-                X = X.toarray()
-        except ImportError:
-            pass
+            from sklearn.preprocessing import LabelEncoder
+            from sklearn.model_selection import train_test_split
+            from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+            from sklearn.naive_bayes import MultinomialNB
+            from sklearn.svm import LinearSVC
+            from sklearn.linear_model import LogisticRegression
+            from sklearn.ensemble import RandomForestClassifier
 
-        le = LabelEncoder()
-        y  = le.fit_transform(y_raw.fillna("unknown").astype(str))
+            X = st.session_state.nlp_vectorized
+            try:
+                import scipy.sparse as sp
+                if sp.issparse(X):
+                    X = X.toarray()
+            except ImportError:
+                pass
 
-        X_tr, X_te, y_tr, y_te = train_test_split(
-            X, y, test_size=test_size, random_state=42, stratify=y
-            if pd.Series(y).value_counts().min() >= 2 else None
-        )
+            le = LabelEncoder()
+            y  = le.fit_transform(y_raw.fillna("unknown").astype(str))
 
-        clf_map = {
-            "Multinomial Naïve Bayes": MultinomialNB(),
-            "Linear SVC":             LinearSVC(max_iter=2000, random_state=42),
-            "Logistic Regression":    LogisticRegression(max_iter=1000, random_state=42),
-            "Random Forest":          RandomForestClassifier(n_estimators=100, random_state=42),
-        }
-        clf = clf_map[clf_name]
+            X_tr, X_te, y_tr, y_te = train_test_split(
+                X, y, test_size=test_size, random_state=42, stratify=y
+                if pd.Series(y).value_counts().min() >= 2 else None
+            )
 
-        with st.spinner(f"Training {clf_name}…"):
-            clf.fit(X_tr, y_tr)
-            y_pred = clf.predict(X_te)
+            clf_map = {
+                "Multinomial Naïve Bayes": MultinomialNB(),
+                "Linear SVC":             LinearSVC(max_iter=2000, random_state=42),
+                "Logistic Regression":    LogisticRegression(max_iter=1000, random_state=42),
+                "Random Forest":          RandomForestClassifier(n_estimators=100, random_state=42),
+            }
+            clf = clf_map[clf_name]
 
-        acc    = accuracy_score(y_te, y_pred)
-        cm     = confusion_matrix(y_te, y_pred)
-        report = classification_report(y_te, y_pred,
-                                       target_names=le.classes_, output_dict=True)
+            with st.spinner(f"Training {clf_name}…"):
+                clf.fit(X_tr, y_tr)
+                y_pred = clf.predict(X_te)
 
-        st.session_state.nlp_trained_clf   = clf
-        st.session_state.nlp_clf_features  = st.session_state.nlp_vectorizer_obj
-        st.session_state.nlp_clf_name      = clf_name
-        st.session_state.nlp_label_encoder = le
-        st.session_state.nlp_clf_results   = {
-            "acc": acc, "cm": cm, "report": report,
-            "y_test": y_te, "y_pred": y_pred,
-            "classes": le.classes_,
-        }
-        st.success(f"✅ Trained! Accuracy: **{acc:.4f}**")
+            acc    = accuracy_score(y_te, y_pred)
+            cm     = confusion_matrix(y_te, y_pred)
+            report = classification_report(y_te, y_pred,
+                                           target_names=le.classes_, output_dict=True)
+
+            st.session_state.nlp_trained_clf   = clf
+            st.session_state.nlp_clf_features  = st.session_state.nlp_vectorizer_obj
+            st.session_state.nlp_clf_name      = clf_name
+            st.session_state.nlp_label_encoder = le
+            st.session_state.nlp_clf_pca_transformer = (
+                st.session_state.nlp_pca_transformer if vec_type == "pca_reduced" else None
+            )
+            st.session_state.nlp_clf_vectorizer_type = (
+                st.session_state.nlp_vectorizer_type_pre_pca if vec_type == "pca_reduced" else vec_type
+            )
+            st.session_state.nlp_clf_results   = {
+                "acc": acc, "cm": cm, "report": report,
+                "y_test": y_te, "y_pred": y_pred,
+                "classes": le.classes_,
+            }
+            set_apply_status("status_train_clf", True, f"accuracy {acc:.4f}")
+        except Exception as e:
+            set_apply_status("status_train_clf", False, str(e))
+        st.rerun()
 
     # ── Results ──
     res = st.session_state.nlp_clf_results
@@ -1322,21 +1647,27 @@ def tab_classification():
                 clf   = st.session_state.nlp_trained_clf
                 vect  = st.session_state.nlp_clf_features
                 le    = st.session_state.nlp_label_encoder
-                vec_t = st.session_state.nlp_vectorizer_type
+                vec_t = st.session_state.nlp_clf_vectorizer_type
+                pca_t = st.session_state.nlp_clf_pca_transformer
                 if manual_text.strip():
-                    if vec_t in ("tfidf", "count"):
-                        X_new = vect.transform([manual_text])
-                        try:
-                            import scipy.sparse as sp
-                            if sp.issparse(X_new): X_new = X_new.toarray()
-                        except ImportError: pass
-                    else:
-                        X_new = vect.encode([manual_text])
-                    pred = clf.predict(X_new)
-                    st.markdown(f"""
-                    <div class='stat-card stat-after'>
-                        Predicted label: <b>{le.inverse_transform(pred)[0]}</b>
-                    </div>""", unsafe_allow_html=True)
+                    try:
+                        if vec_t in ("tfidf", "count"):
+                            X_new = vect.transform([manual_text])
+                            try:
+                                import scipy.sparse as sp
+                                if sp.issparse(X_new): X_new = X_new.toarray()
+                            except ImportError: pass
+                        else:
+                            X_new = vect.encode([manual_text])
+                        if pca_t is not None:
+                            X_new = pca_t.transform(X_new)
+                        pred = clf.predict(X_new)
+                        st.markdown(f"""
+                        <div class='stat-card stat-after'>
+                            Predicted label: <b>{le.inverse_transform(pred)[0]}</b>
+                        </div>""", unsafe_allow_html=True)
+                    except Exception as e:
+                        st.error(f"Prediction failed: {e}")
 
         with infer_tabs[1]:
             bulk_file = st.file_uploader("Upload CSV with text column", type=["csv"],
@@ -1346,24 +1677,30 @@ def tab_classification():
                 bulk_text_col = st.selectbox("Text column", bulk_df.columns.tolist(),
                                              key="clf_bulk_col")
                 if st.button("🔮 Predict Batch", key="btn_clf_bulk"):
-                    clf   = st.session_state.nlp_trained_clf
-                    vect  = st.session_state.nlp_clf_features
-                    le    = st.session_state.nlp_label_encoder
-                    vec_t = st.session_state.nlp_vectorizer_type
-                    docs  = bulk_df[bulk_text_col].fillna("").astype(str).tolist()
-                    if vec_t in ("tfidf", "count"):
-                        X_bulk = vect.transform(docs)
-                        try:
-                            import scipy.sparse as sp
-                            if sp.issparse(X_bulk): X_bulk = X_bulk.toarray()
-                        except ImportError: pass
-                    else:
-                        X_bulk = vect.encode(docs, show_progress_bar=False)
-                    preds = clf.predict(X_bulk)
-                    bulk_df["predicted_label"] = le.inverse_transform(preds)
-                    st.dataframe(bulk_df.head(50), use_container_width=True)
-                    download_csv_button(bulk_df, "bulk_predictions.csv")
-                    save_result_widget(bulk_df, "bulk_predictions", "clf_bulk_save")
+                    try:
+                        clf   = st.session_state.nlp_trained_clf
+                        vect  = st.session_state.nlp_clf_features
+                        le    = st.session_state.nlp_label_encoder
+                        vec_t = st.session_state.nlp_clf_vectorizer_type
+                        pca_t = st.session_state.nlp_clf_pca_transformer
+                        docs  = bulk_df[bulk_text_col].fillna("").astype(str).tolist()
+                        if vec_t in ("tfidf", "count"):
+                            X_bulk = vect.transform(docs)
+                            try:
+                                import scipy.sparse as sp
+                                if sp.issparse(X_bulk): X_bulk = X_bulk.toarray()
+                            except ImportError: pass
+                        else:
+                            X_bulk = vect.encode(docs, show_progress_bar=False)
+                        if pca_t is not None:
+                            X_bulk = pca_t.transform(X_bulk)
+                        preds = clf.predict(X_bulk)
+                        bulk_df["predicted_label"] = le.inverse_transform(preds)
+                        st.dataframe(bulk_df.head(50), use_container_width=True)
+                        download_csv_button(bulk_df, "bulk_predictions.csv")
+                        save_result_widget(bulk_df, "bulk_predictions", "clf_bulk_save")
+                    except Exception as e:
+                        st.error(f"Batch prediction failed: {e}")
 
 
 # ══════════════════════════════════════════════════════════════
@@ -1385,119 +1722,158 @@ def tab_topic_modeling():
         vec_type = st.session_state.nlp_vectorizer_type
         X        = st.session_state.nlp_vectorized
 
-        try:
-            import scipy.sparse as sp
-            if sp.issparse(X): X_dense = X.toarray()
-            else:              X_dense = X
-        except ImportError:
-            X_dense = X
-
-        tm_method = st.selectbox(
-            "Method", ["LDA (requires Count vectorizer)", "NMF (works with TF-IDF)"],
-            key="tm_method",
-        )
-        if "LDA" in tm_method and vec_type != "count":
-            st.warning(
-                "LDA requires **Count** (Bag of Words) vectorizer output. "
-                "Switch to Count in the Vectorization tab or use NMF instead."
+        if vec_type not in ("tfidf", "count"):
+            reason = ("Sentence Transformer embeddings" if vec_type == "sentence_transformer"
+                      else "a PCA-reduced matrix" if vec_type == "pca_reduced"
+                      else "the active matrix")
+            st.info(
+                f"Topic Modeling (LDA/NMF) needs an interpretable **word vocabulary** to "
+                f"label topics by their top keywords, and NMF additionally requires "
+                f"**non-negative** values. The active matrix right now is {reason}, which "
+                "has neither a fixed vocabulary nor a non-negativity guarantee — this is "
+                "exactly what was causing the `Negative values in data passed to NMF "
+                "initialization` crash.\n\n"
+                "**To fix:** open the **Vectorization** tab and (re-)run **TF-IDF** or "
+                "**Count** vectorization — and skip PCA Reduction on top of it if you plan "
+                "to use Topic Modeling.\n\n"
+                "For topic-like grouping on embeddings, use the **K-Means Text Clustering** "
+                "tab instead — it works on any numeric matrix, embeddings included."
             )
-            return
+        else:
+            try:
+                import scipy.sparse as sp
+                if sp.issparse(X): X_dense = X.toarray()
+                else:              X_dense = X
+            except ImportError:
+                X_dense = X
 
-        n_topics = st.slider("Number of topics", 2, 20, 5, key="tm_n_topics")
-        top_words = st.slider("Top words per topic", 5, 20, 10, key="tm_top_words")
+            tm_method = st.selectbox(
+                "Method", ["LDA (requires Count vectorizer)", "NMF (works with TF-IDF)"],
+                key="tm_method",
+            )
 
-        if st.button("🚀 Run Topic Model", key="btn_run_tm"):
-            if "LDA" in tm_method:
-                from sklearn.decomposition import LatentDirichletAllocation
-                model = LatentDirichletAllocation(
-                    n_components=n_topics, random_state=42, max_iter=20
+            lda_blocked = "LDA" in tm_method and vec_type != "count"
+            if lda_blocked:
+                st.warning(
+                    "LDA requires **Count** (Bag of Words) vectorizer output. "
+                    "Switch to Count in the Vectorization tab or use NMF instead."
                 )
-                with st.spinner(f"Fitting LDA ({n_topics} topics)…"):
-                    doc_topic = model.fit_transform(X if not sp.issparse(X) else X)
-                tm_type = "LDA"
-            else:
-                from sklearn.decomposition import NMF
-                model = NMF(n_components=n_topics, random_state=42, max_iter=500)
-                with st.spinner(f"Fitting NMF ({n_topics} topics)…"):
-                    doc_topic = model.fit_transform(X_dense)
-                tm_type = "NMF"
 
-            feature_names = st.session_state.nlp_feature_names
-            if feature_names is None:
-                st.error("Feature names unavailable — Topic Modeling requires TF-IDF or Count vectorizer.")
-                return
+            n_topics = st.slider("Number of topics", 2, 20, 5, key="tm_n_topics")
+            top_words = st.slider("Top words per topic", 5, 20, 10, key="tm_top_words")
 
-            topics = []
-            for i, comp in enumerate(model.components_):
-                top_idx  = comp.argsort()[::-1][:top_words]
-                keywords = [feature_names[j] for j in top_idx]
-                topics.append({"topic": i, "keywords": keywords, "weights": comp[top_idx]})
+            if stateful_apply_button("🚀 Run Topic Model", "status_run_tm"):
+                if lda_blocked:
+                    set_apply_status(
+                        "status_run_tm", False,
+                        "LDA requires Count vectorizer output — switch to Count in "
+                        "Vectorization, or choose NMF instead."
+                    )
+                else:
+                    try:
+                        if not is_nonnegative(X_dense):
+                            raise ValueError(
+                                "The vectorized matrix contains negative values, which NMF/LDA "
+                                "cannot factorise. This shouldn't happen with TF-IDF/Count — "
+                                "try re-running Vectorization on the Vectorization tab."
+                            )
+                        if "LDA" in tm_method:
+                            from sklearn.decomposition import LatentDirichletAllocation
+                            model = LatentDirichletAllocation(
+                                n_components=n_topics, random_state=42, max_iter=20
+                            )
+                            with st.spinner(f"Fitting LDA ({n_topics} topics)…"):
+                                doc_topic = model.fit_transform(X_dense)
+                            tm_type = "LDA"
+                        else:
+                            from sklearn.decomposition import NMF
+                            model = NMF(n_components=n_topics, random_state=42, max_iter=500)
+                            with st.spinner(f"Fitting NMF ({n_topics} topics)…"):
+                                doc_topic = model.fit_transform(X_dense)
+                            tm_type = "NMF"
 
-            st.session_state.nlp_topic_model   = model
-            st.session_state.nlp_topic_type    = tm_type
-            st.session_state.nlp_topic_results = {
-                "topics": topics, "doc_topic": doc_topic,
-                "n_topics": n_topics, "tm_type": tm_type,
-            }
-            st.success(f"✅ {tm_type} complete — {n_topics} topics discovered.")
+                        feature_names = st.session_state.nlp_feature_names
+                        if feature_names is None:
+                            raise RuntimeError(
+                                "Feature names unavailable — Topic Modeling requires TF-IDF or "
+                                "Count vectorizer output."
+                            )
 
-        res = st.session_state.nlp_topic_results
-        if res:
-            topics   = res["topics"]
-            doc_topic = res["doc_topic"]
+                        topics = []
+                        for i, comp in enumerate(model.components_):
+                            top_idx  = comp.argsort()[::-1][:top_words]
+                            keywords = [feature_names[j] for j in top_idx]
+                            topics.append({"topic": i, "keywords": keywords, "weights": comp[top_idx]})
 
-            # Topic keyword cards
-            st.subheader("Topic Keywords")
-            cols = st.columns(min(n_topics, 3))
-            for i, t in enumerate(topics):
-                with cols[i % min(n_topics, 3)]:
-                    keywords_str = " · ".join(t["keywords"])
-                    st.markdown(f"""
-                    <div class='stat-card stat-info'>
-                        <b>Topic {t['topic']}</b><br>
-                        <span style='font-size:12px'>{keywords_str}</span>
-                    </div>""", unsafe_allow_html=True)
+                        st.session_state.nlp_topic_model   = model
+                        st.session_state.nlp_topic_type    = tm_type
+                        st.session_state.nlp_topic_results = {
+                            "topics": topics, "doc_topic": doc_topic,
+                            "n_topics": n_topics, "tm_type": tm_type,
+                        }
+                        set_apply_status("status_run_tm", True, f"{tm_type}, {n_topics} topics")
+                    except Exception as e:
+                        set_apply_status("status_run_tm", False, str(e))
+                st.rerun()
 
-            # Document-topic distribution heatmap (sample)
-            st.subheader("Document–Topic Distribution (first 50 docs)")
-            sample_dt = pd.DataFrame(
-                doc_topic[:50],
-                columns=[f"Topic {i}" for i in range(res["n_topics"])]
-            )
-            fig_dt = px.imshow(
-                sample_dt, template=pt(),
-                title="Document–Topic Weight Heatmap",
-                color_continuous_scale="Blues",
-                labels={"x": "Topic", "y": "Document"},
-            )
-            st.plotly_chart(fig_dt, use_container_width=True)
+            res = st.session_state.nlp_topic_results
+            if res:
+                topics   = res["topics"]
+                doc_topic = res["doc_topic"]
 
-            # Per-topic dominant count
-            dominant = np.argmax(doc_topic, axis=1)
-            dom_counts = pd.Series(dominant).value_counts().sort_index().reset_index()
-            dom_counts.columns = ["topic", "count"]
-            dom_counts["topic"] = dom_counts["topic"].apply(lambda x: f"Topic {x}")
-            fig_dom = px.bar(
-                dom_counts, x="topic", y="count", template=pt(),
-                title="Documents per Dominant Topic",
-                color_discrete_sequence=COLOR_SEQ,
-            )
-            st.plotly_chart(fig_dom, use_container_width=True)
+                # Topic keyword cards
+                st.subheader("Topic Keywords")
+                cols = st.columns(min(res["n_topics"], 3))
+                for i, t in enumerate(topics):
+                    with cols[i % min(res["n_topics"], 3)]:
+                        keywords_str = " · ".join(t["keywords"])
+                        st.markdown(f"""
+                        <div class='stat-card stat-info'>
+                            <b>Topic {t['topic']}</b><br>
+                            <span style='font-size:12px'>{keywords_str}</span>
+                        </div>""", unsafe_allow_html=True)
 
-            # Topic breakdown table
-            corpus_df = st.session_state.nlp_raw_corpus
-            text_series, _ = get_active_text_series()
-            result_df = corpus_df.copy()
-            result_df["dominant_topic"] = dominant
-            result_df["topic_weight"]   = doc_topic.max(axis=1).round(4)
-            for i in range(res["n_topics"]):
-                result_df[f"topic_{i}_weight"] = doc_topic[:, i].round(4)
+                # Document-topic distribution heatmap (sample)
+                st.subheader("Document–Topic Distribution (first 50 docs)")
+                sample_dt = pd.DataFrame(
+                    doc_topic[:50],
+                    columns=[f"Topic {i}" for i in range(res["n_topics"])]
+                )
+                fig_dt = px.imshow(
+                    sample_dt, template=pt(),
+                    title="Document–Topic Weight Heatmap",
+                    color_continuous_scale="Blues",
+                    labels={"x": "Topic", "y": "Document"},
+                )
+                st.plotly_chart(fig_dt, use_container_width=True)
 
-            with st.expander("📋 Document–Topic Assignments"):
-                st.dataframe(result_df[["doc_id", "source", "text", "dominant_topic", "topic_weight"]].head(100),
-                             use_container_width=True)
-            download_csv_button(result_df, "topic_assignments.csv", "⬇ Download Topic Assignments")
-            save_result_widget(result_df, "topic_assignments", "tm_save")
+                # Per-topic dominant count
+                dominant = np.argmax(doc_topic, axis=1)
+                dom_counts = pd.Series(dominant).value_counts().sort_index().reset_index()
+                dom_counts.columns = ["topic", "count"]
+                dom_counts["topic"] = dom_counts["topic"].apply(lambda x: f"Topic {x}")
+                fig_dom = px.bar(
+                    dom_counts, x="topic", y="count", template=pt(),
+                    title="Documents per Dominant Topic",
+                    color_discrete_sequence=COLOR_SEQ,
+                )
+                st.plotly_chart(fig_dom, use_container_width=True)
+
+                # Topic breakdown table
+                corpus_df = st.session_state.nlp_raw_corpus
+                text_series, _ = get_active_text_series()
+                result_df = corpus_df.copy()
+                result_df["dominant_topic"] = dominant
+                result_df["topic_weight"]   = doc_topic.max(axis=1).round(4)
+                for i in range(res["n_topics"]):
+                    result_df[f"topic_{i}_weight"] = doc_topic[:, i].round(4)
+
+                with st.expander("📋 Document–Topic Assignments"):
+                    st.dataframe(result_df[["doc_id", "source", "text", "dominant_topic", "topic_weight"]].head(100),
+                                 use_container_width=True)
+                download_csv_button(result_df, "topic_assignments.csv", "⬇ Download Topic Assignments")
+                save_result_widget(result_df, "topic_assignments", "tm_save")
+
 
     # ── K-Means Text Clustering ──
     with topic_tabs[1]:
@@ -1516,26 +1892,37 @@ def tab_topic_modeling():
             return
 
         # Elbow
-        if st.button("📈 Compute Elbow Curve", key="btn_elbow"):
-            from sklearn.cluster import KMeans
-            from sklearn.metrics import silhouette_score
-            with st.spinner("Computing elbow…"):
-                k_range = range(2, min(k_max + 1, 12))
-                inertias, sils = [], []
-                for k in k_range:
-                    km = KMeans(n_clusters=k, random_state=42, n_init=10)
-                    lb = km.fit_predict(X)
-                    inertias.append(km.inertia_)
-                    sils.append(silhouette_score(X, lb, sample_size=min(1000, X.shape[0])))
+        if stateful_apply_button("📈 Compute Elbow Curve", "status_elbow"):
+            try:
+                from sklearn.cluster import KMeans
+                from sklearn.metrics import silhouette_score
+                with st.spinner("Computing elbow…"):
+                    k_range = range(2, min(k_max + 1, 12))
+                    inertias, sils = [], []
+                    for k in k_range:
+                        km = KMeans(n_clusters=k, random_state=42, n_init=10)
+                        lb = km.fit_predict(X)
+                        inertias.append(km.inertia_)
+                        sils.append(silhouette_score(X, lb, sample_size=min(1000, X.shape[0])))
+                st.session_state["_elbow_data"] = {
+                    "k_range": list(k_range), "inertias": inertias, "sils": sils,
+                }
+                set_apply_status("status_elbow", True, f"k = 2…{min(k_max, 11)}")
+            except Exception as e:
+                set_apply_status("status_elbow", False, str(e))
+            st.rerun()
+
+        elbow_data = st.session_state.get("_elbow_data")
+        if elbow_data:
             ec1, ec2 = st.columns(2)
             with ec1:
-                fig_elb = px.line(x=list(k_range), y=inertias, markers=True,
+                fig_elb = px.line(x=elbow_data["k_range"], y=elbow_data["inertias"], markers=True,
                                   template=pt(), title="Elbow Method",
                                   labels={"x": "k", "y": "Inertia"},
                                   color_discrete_sequence=[COLOR_SEQ[0]])
                 st.plotly_chart(fig_elb, use_container_width=True)
             with ec2:
-                fig_sil = px.line(x=list(k_range), y=sils, markers=True,
+                fig_sil = px.line(x=elbow_data["k_range"], y=elbow_data["sils"], markers=True,
                                   template=pt(), title="Silhouette Score",
                                   labels={"x": "k", "y": "Silhouette"},
                                   color_discrete_sequence=[COLOR_SEQ[2]])
@@ -1544,37 +1931,41 @@ def tab_topic_modeling():
         k_val = st.slider("Number of clusters (k)", 2, k_max, min(5, k_max),
                           key="clust_k_val")
 
-        if st.button("🚀 Run K-Means", key="btn_run_kmeans"):
-            from sklearn.cluster import KMeans
-            from sklearn.metrics import silhouette_score
-            with st.spinner(f"Clustering into {k_val} clusters…"):
-                km     = KMeans(n_clusters=k_val, random_state=42, n_init=10)
-                labels = km.fit_predict(X)
-                sil    = silhouette_score(X, labels, sample_size=min(1000, X.shape[0]))
+        if stateful_apply_button("🚀 Run K-Means", "status_run_kmeans"):
+            try:
+                from sklearn.cluster import KMeans
+                from sklearn.metrics import silhouette_score
+                with st.spinner(f"Clustering into {k_val} clusters…"):
+                    km     = KMeans(n_clusters=k_val, random_state=42, n_init=10)
+                    labels = km.fit_predict(X)
+                    sil    = silhouette_score(X, labels, sample_size=min(1000, X.shape[0]))
 
-            corpus_df    = st.session_state.nlp_raw_corpus
-            text_series, _ = get_active_text_series()
-            result_df    = corpus_df.copy()
-            result_df["cluster"] = labels.astype(str)
+                corpus_df    = st.session_state.nlp_raw_corpus
+                text_series, _ = get_active_text_series()
+                result_df    = corpus_df.copy()
+                result_df["cluster"] = labels.astype(str)
 
-            # Representative docs (closest to centroid)
-            reps = []
-            for c in range(k_val):
-                idx_c  = np.where(labels == c)[0]
-                center = km.cluster_centers_[c]
-                dists  = np.linalg.norm(X[idx_c] - center, axis=1)
-                best   = idx_c[np.argmin(dists)]
-                reps.append({
-                    "cluster": str(c),
-                    "n_docs": len(idx_c),
-                    "representative_text": str(text_series.iloc[best])[:200],
-                })
+                # Representative docs (closest to centroid)
+                reps = []
+                for c in range(k_val):
+                    idx_c  = np.where(labels == c)[0]
+                    center = km.cluster_centers_[c]
+                    dists  = np.linalg.norm(X[idx_c] - center, axis=1)
+                    best   = idx_c[np.argmin(dists)]
+                    reps.append({
+                        "cluster": str(c),
+                        "n_docs": len(idx_c),
+                        "representative_text": str(text_series.iloc[best])[:200],
+                    })
 
-            st.session_state.nlp_cluster_results = {
-                "model": km, "labels": labels, "sil": sil,
-                "result_df": result_df, "reps": reps, "k": k_val,
-            }
-            st.success(f"✅ Silhouette score: **{sil:.4f}**")
+                st.session_state.nlp_cluster_results = {
+                    "model": km, "labels": labels, "sil": sil,
+                    "result_df": result_df, "reps": reps, "k": k_val,
+                }
+                set_apply_status("status_run_kmeans", True, f"k={k_val}, silhouette {sil:.4f}")
+            except Exception as e:
+                set_apply_status("status_run_kmeans", False, str(e))
+            st.rerun()
 
         cr = st.session_state.nlp_cluster_results
         if cr:

@@ -1,0 +1,13 @@
+================================================================================
+SOURCE FILE: SPORTS AND ATHLETICS (Target Class: Sports)
+================================================================================
+SPORT_001: The championship match went into extra time after a thrilling 2-2 draw. The striker scored a brilliant goal in the final minutes of the second half.
+SPORT_002: Olympic athletes are training intensely for the upcoming track and field events. Coaches are running specialized drills to maximize sprinting velocities.
+SPORT_003: <html><body><h2>LIVE SCORE UPDATE: NBA FINALS</h2></body></html> The point guard runs the offense efficiently, scoring 34 points and securing 12 crucial assists.
+SPORT_004: Heavy rain delayed the tennis tournament finals on court 3. Officials are running safety checks on the grass surface before play can safely resume.
+SPORT_005: Tactical analysis shows the team runs a high-pressing defensive strategy. The manager ran variations of this formation during pre-season training camps.
+SPORT_006: Professional athletes prioritize physical recovery, hydration, and targeted nutrition plans to maintain peak performance during long, grueling competitive seasons.
+SPORT_007: <html><div class="sports-feed">🏆 <b>Breaking News:</b> Contract extensions signed for top-tier football club players. ://sportsnetwork-live.com</div></html>
+SPORT_008: The marathon runner finished the 42km race in record time. She has been running long-distance trails for over 10 years to build lung endurance.
+SPORT_009: Fitness instructors are running community bootcamps to encourage active lifestyles. They run these outdoor sessions every Saturday morning at the stadium.
+SPORT_010: The referee issued two yellow cards for aggressive tackling during the rowdy derby match. Both managers complained bitterly about the officiating decisions.

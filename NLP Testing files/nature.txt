@@ -1,0 +1,13 @@
+================================================================================
+SOURCE FILE: NATURE AND WILDLIFE (Target Class: Nature)
+================================================================================
+NAT_001: Deep within the ancient rainforest ecosystem, diverse biological organisms interact. Thousands of unique insect species inhabit the dense canopy layer.
+NAT_002: Marine biologists are studying coral reef bleaching events caused by rising ocean temperatures. They are running deep-sea telemetry systems to log data.
+NAT_003: <html><head><title>Wildlife Preserve</title></head><body><h1>Migratory Bird Patterns</h1><p>Flocks are flying south for winter.</p></body></html>
+NAT_004: Conservation officers run local reforestation initiatives to protect endangered flora. The team runs nursery programs to cultivate native tree saplings.
+NAT_005: Glacial meltwaters run down the mountain valleys, forming pristine freshwater rivers that support massive salmon populations and local apex predators.
+NAT_006: Dense broadleaf forests act as natural carbon sinks, filtering polluted air and releasing vast amounts of clean oxygen back into the global atmosphere.
+NAT_007: <html>🌱 <b>Eco-Watch:</b> 🌲 National parks report a significant resurgence in grey wolf populations across protected wilderness sanctuaries.</html>
+NAT_008: The mountain stream runs swiftly over smooth river stones. Heavy seasonal rainfall causes the creek to run past its original embankments into meadows.
+NAT_009: Botanalists ran genetic sequencing on rare alpine flowers. They ran multiple laboratory trials to understand how these plants survive freezing environments.
+NAT_010: Volcanic soil compositions are incredibly rich in mineral nutrients, allowing lush vegetation, dense ferns, and complex fungal networks to thrive rapidly.
