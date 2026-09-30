@@ -1,0 +1,8 @@
+================================================================================
+CLASS: MARKET & FINANCE PAPERS (Target Class: Market_Finance)
+================================================================================
+DOC_011: Global market volatility index increased by 14.5 percent following the sudden central bank interest rate adjustments today. Investors are reorganizing portfolios.
+DOC_012: The stock market reacted sharply to the new corporate finance regulations. Financial analysts expect a massive shift toward low-yield bonds this quarter.
+DOC_013: Market indicators suggest a bearish trend in the international finance sector. Trading volumes dropped significantly to around 45000000 units.
+DOC_014: Several finance institutions are running stress tests on asset liquidity. The risk managers ran multiple scenarios and found severe vulnerabilities.
+DOC_015: <html>📊 <b>Q3 Financial Summary:</b> 📄 Inflation pressures are impacting equity market performance worldwide.</html>

@@ -31,10 +31,14 @@ warnings.filterwarnings("ignore")
 import re
 import time
 import json
+# pyrefly: ignore [missing-import]
 import numpy as np
 import pandas as pd
+# pyrefly: ignore [missing-import]
 import streamlit as st
+# pyrefly: ignore [missing-import]
 import plotly.express as px
+# pyrefly: ignore [missing-import]
 import plotly.graph_objects as go
 from collections import Counter
 
@@ -46,6 +50,7 @@ def detect_gpu():
     """Detect CUDA availability once per session. Returns dict with status info."""
     info = {"available": False, "name": None, "reason": None}
     try:
+        # pyrefly: ignore [missing-import]
         import torch
         if torch.cuda.is_available():
             info["available"] = True
@@ -62,15 +67,12 @@ GPU_INFO = detect_gpu()
 # ──────────────────────────────────────────────────────────────
 # Page config
 # ──────────────────────────────────────────────────────────────
-try:
-    st.set_page_config(
-        page_title="NLP Dashboard",
-        page_icon="🧠",
-        layout="wide",
-        initial_sidebar_state="expanded",
-    )
-except Exception:
-    pass
+st.set_page_config(
+    page_title="NLP Dashboard",
+    page_icon="🧠",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
 # ──────────────────────────────────────────────────────────────
 # Custom CSS  (mirrors app12 palette exactly)
@@ -251,6 +253,7 @@ def load_spacy():
     """Load spaCy with only the components needed for lemmatisation.
     Disabling 'ner' and 'parser' gives a significant speed boost."""
     try:
+        # pyrefly: ignore [missing-import]
         import spacy
         return spacy.load("en_core_web_sm", disable=["ner", "parser"])
     except OSError:
@@ -263,6 +266,7 @@ def load_spacy():
 def load_sentence_transformer(model_name="all-MiniLM-L6-v2", device=None):
     """device: 'cuda', 'cpu', or None (auto: GPU if available)."""
     try:
+        # pyrefly: ignore [missing-import]
         from sentence_transformers import SentenceTransformer
         device = device or ("cuda" if GPU_INFO["available"] else "cpu")
         return SentenceTransformer(model_name, device=device)
@@ -383,6 +387,7 @@ def set_apply_status(status_key, ok, msg=""):
 def is_nonnegative(X):
     """True if the matrix/array has no negative entries (NMF/MultinomialNB requirement)."""
     try:
+        # pyrefly: ignore [missing-import]
         import scipy.sparse as sp
         if sp.issparse(X):
             return X.min() >= 0 if X.nnz > 0 else True
@@ -420,18 +425,21 @@ def load_text_file(uploaded_file):
         return docs, f"{len(docs):,} lines"
 
     elif ext == "pdf":
+        # pyrefly: ignore [missing-import]
         import fitz  # PyMuPDF
         doc  = fitz.open(stream=uploaded_file.read(), filetype="pdf")
         docs = [page.get_text().strip() for page in doc if page.get_text().strip()]
         return docs, f"{len(docs):,} pages"
 
     elif ext == "docx":
+        # pyrefly: ignore [missing-import]
         import docx
         doc  = docx.Document(uploaded_file)
         docs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
         return docs, f"{len(docs):,} paragraphs"
 
     elif ext == "pptx":
+        # pyrefly: ignore [missing-import]
         import pptx
         prs  = pptx.Presentation(uploaded_file)
         docs = []

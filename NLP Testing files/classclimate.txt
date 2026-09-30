@@ -1,0 +1,8 @@
+================================================================================
+CLASS: CLIMATE NEWS & ENVIRONMENT (Target Class: Climate_News)
+================================================================================
+DOC_006: Global climate change is accelerating rapidly due to unprecedented greenhouse gas concentrations in the atmosphere. Scientists are studying extreme weather patterns.
+DOC_007: International climate summits are focusing on carbon neutrality goals. Many nations are pledging to reduce climate impacts by investing in green energy.
+DOC_008: <html><head><title>Climate Reports</title></head><body><h1>Rising Sea Levels</h1><p>Coastal cities face severe flooding risks.</p></body></html>
+DOC_009: The local environmental agency runs simulations on climate patterns. They are running models to see how global warming affects agricultural ecosystems across regions.
+DOC_010: Renewable energy solutions like wind turbines and solar arrays are critical weapons in the ongoing battle against catastrophic climate shifts.

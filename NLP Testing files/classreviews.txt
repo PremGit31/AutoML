@@ -1,0 +1,8 @@
+================================================================================
+CLASS: CUSTOMER FEEDBACK & REVIEWS (Target Class: Customer_Feedback)
+================================================================================
+DOC_016: Excellent customer service! The support representative was incredibly helpful, responsive, and resolved my product shipment issues within five minutes.
+DOC_017: I am writing to express my deep dissatisfaction with the poor customer support. I spent 3 hours on hold and nobody answered my simple question.
+DOC_018: <html><div class="review">⭐⭐⭐⭐⭐ Fantastic experience! The customer portal is clean, fast, and easy to navigate. ://customer-portal-test.com</div></html>
+DOC_019: Our client management team runs weekly feedback loops. They have been running surveys to measure customer satisfaction across all service departments.
+DOC_020: The customer complained that the software interface is too complicated. We need to streamline user onboarding to reduce support tickets.
