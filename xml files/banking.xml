@@ -1,0 +1,750 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<BankingSystem
+    xmlns="http://example.com/banking"
+    xmlns:fin="http://example.com/finance"
+    version="2.1"
+    generatedAt="2026-10-01T10:30:00+05:30">
+
+    <!-- ========================================================= -->
+    <!-- BANK INFORMATION                                         -->
+    <!-- ========================================================= -->
+
+    <Bank>
+        <BankId>BNK001</BankId>
+        <Name>Global Trust Bank</Name>
+        <SwiftCode>GTBKINBBXXX</SwiftCode>
+        <Country>India</Country>
+        <Currency>INR</Currency>
+
+        <HeadOffice>
+            <AddressLine1>100 Financial District</AddressLine1>
+            <AddressLine2>Business Bay</AddressLine2>
+            <City>Mumbai</City>
+            <State>Maharashtra</State>
+            <PostalCode>400001</PostalCode>
+            <Country>India</Country>
+        </HeadOffice>
+
+        <Contact>
+            <Phone>+91-22-40000000</Phone>
+            <Email>support@globaltrust.example</Email>
+            <Website>https://www.globaltrust.example</Website>
+        </Contact>
+
+        <Branches>
+
+            <Branch id="BR001" type="Urban">
+                <BranchCode>GTB001</BranchCode>
+                <Name>Fort Branch</Name>
+                <Manager>
+                    <EmployeeId>EMP1001</EmployeeId>
+                    <Name>Rahul Mehta</Name>
+                </Manager>
+                <Address>
+                    <City>Mumbai</City>
+                    <State>Maharashtra</State>
+                    <PostalCode>400001</PostalCode>
+                </Address>
+                <Services>
+                    <Service>Accounts</Service>
+                    <Service>Loans</Service>
+                    <Service>Investments</Service>
+                    <Service>ForeignExchange</Service>
+                </Services>
+            </Branch>
+
+            <Branch id="BR002" type="Urban">
+                <BranchCode>GTB002</BranchCode>
+                <Name>Andheri Branch</Name>
+                <Manager>
+                    <EmployeeId>EMP1002</EmployeeId>
+                    <Name>Priya Shah</Name>
+                </Manager>
+                <Address>
+                    <City>Mumbai</City>
+                    <State>Maharashtra</State>
+                    <PostalCode>400058</PostalCode>
+                </Address>
+                <Services>
+                    <Service>Accounts</Service>
+                    <Service>Loans</Service>
+                    <Service>Insurance</Service>
+                </Services>
+            </Branch>
+
+        </Branches>
+    </Bank>
+
+
+    <!-- ========================================================= -->
+    <!-- CUSTOMERS                                                 -->
+    <!-- ========================================================= -->
+
+    <Customers>
+
+        <Customer customerId="CUST10001" status="Active">
+            <PersonalInformation>
+                <Title>Mr</Title>
+                <FirstName>Arjun</FirstName>
+                <MiddleName>Raj</MiddleName>
+                <LastName>Patil</LastName>
+                <DateOfBirth>1998-04-15</DateOfBirth>
+                <Nationality>Indian</Nationality>
+                <Occupation>Software Engineer</Occupation>
+            </PersonalInformation>
+
+            <ContactInformation>
+                <Email>arjun.patil@example.com</Email>
+                <Mobile countryCode="+91">9876543210</Mobile>
+                <Address>
+                    <AddressLine1>45 Lake View Road</AddressLine1>
+                    <City>Mumbai</City>
+                    <State>Maharashtra</State>
+                    <PostalCode>400076</PostalCode>
+                    <Country>India</Country>
+                </Address>
+            </ContactInformation>
+
+            <KYC>
+                <KYCStatus>Verified</KYCStatus>
+                <VerificationDate>2026-01-20</VerificationDate>
+                <Documents>
+                    <Document type="PAN">
+                        <DocumentNumber>ABCDE1234F</DocumentNumber>
+                        <Verified>true</Verified>
+                    </Document>
+                    <Document type="Passport">
+                        <DocumentNumber>P1234567</DocumentNumber>
+                        <Verified>true</Verified>
+                    </Document>
+                </Documents>
+            </KYC>
+
+            <RiskProfile>
+                <RiskCategory>Moderate</RiskCategory>
+                <RiskScore>42</RiskScore>
+                <LastAssessment>2026-08-10</LastAssessment>
+            </RiskProfile>
+        </Customer>
+
+
+        <Customer customerId="CUST10002" status="Active">
+            <PersonalInformation>
+                <Title>Ms</Title>
+                <FirstName>Neha</FirstName>
+                <LastName>Deshmukh</LastName>
+                <DateOfBirth>1995-11-02</DateOfBirth>
+                <Nationality>Indian</Nationality>
+                <Occupation>Financial Analyst</Occupation>
+            </PersonalInformation>
+
+            <ContactInformation>
+                <Email>neha.deshmukh@example.com</Email>
+                <Mobile countryCode="+91">9988776655</Mobile>
+                <Address>
+                    <AddressLine1>12 Green Park</AddressLine1>
+                    <City>Pune</City>
+                    <State>Maharashtra</State>
+                    <PostalCode>411001</PostalCode>
+                    <Country>India</Country>
+                </Address>
+            </ContactInformation>
+
+            <KYC>
+                <KYCStatus>Verified</KYCStatus>
+                <VerificationDate>2025-12-10</VerificationDate>
+                <Documents>
+                    <Document type="PAN">
+                        <DocumentNumber>FGHIJ5678K</DocumentNumber>
+                        <Verified>true</Verified>
+                    </Document>
+                </Documents>
+            </KYC>
+
+            <RiskProfile>
+                <RiskCategory>Low</RiskCategory>
+                <RiskScore>18</RiskScore>
+                <LastAssessment>2026-07-25</LastAssessment>
+            </RiskProfile>
+        </Customer>
+
+    </Customers>
+
+
+    <!-- ========================================================= -->
+    <!-- BANK ACCOUNTS                                             -->
+    <!-- ========================================================= -->
+
+    <Accounts>
+
+        <Account accountId="ACC100001" customerId="CUST10001" type="Savings">
+            <AccountNumber>XXXXXX4521</AccountNumber>
+            <Currency>INR</Currency>
+            <Status>Active</Status>
+            <OpeningDate>2022-06-15</OpeningDate>
+
+            <Balance>
+                <Available currency="INR">184500.75</Available>
+                <Current currency="INR">192500.75</Current>
+                <Blocked currency="INR">8000.00</Blocked>
+            </Balance>
+
+            <Interest>
+                <Rate>3.50</Rate>
+                <RateUnit>PercentagePerAnnum</RateUnit>
+                <CalculationMethod>Daily</CalculationMethod>
+            </Interest>
+
+            <Transactions>
+
+                <Transaction transactionId="TXN900001" type="Credit">
+                    <Date>2026-09-25</Date>
+                    <Time>10:15:32</Time>
+                    <Amount currency="INR">75000.00</Amount>
+                    <Description>Salary Credit</Description>
+                    <Channel>NEFT</Channel>
+                    <Status>Completed</Status>
+                    <Reference>NEFT202609250001</Reference>
+                </Transaction>
+
+                <Transaction transactionId="TXN900002" type="Debit">
+                    <Date>2026-09-26</Date>
+                    <Time>14:20:11</Time>
+                    <Amount currency="INR">12500.00</Amount>
+                    <Description>Online Purchase</Description>
+                    <Channel>DebitCard</Channel>
+                    <Merchant>
+                        <Name>Example Electronics</Name>
+                        <Category>Electronics</Category>
+                    </Merchant>
+                    <Status>Completed</Status>
+                    <Reference>CARD202609260045</Reference>
+                </Transaction>
+
+                <Transaction transactionId="TXN900003" type="Debit">
+                    <Date>2026-09-27</Date>
+                    <Time>09:05:43</Time>
+                    <Amount currency="INR">3500.00</Amount>
+                    <Description>Utility Bill Payment</Description>
+                    <Channel>InternetBanking</Channel>
+                    <Status>Completed</Status>
+                    <Reference>UTL202609270101</Reference>
+                </Transaction>
+
+                <Transaction transactionId="TXN900004" type="Credit">
+                    <Date>2026-09-28</Date>
+                    <Time>16:45:20</Time>
+                    <Amount currency="INR">25000.00</Amount>
+                    <Description>Transfer from Investment Account</Description>
+                    <Channel>InternalTransfer</Channel>
+                    <Status>Completed</Status>
+                    <Reference>INT202609280012</Reference>
+                </Transaction>
+
+            </Transactions>
+        </Account>
+
+
+        <Account accountId="ACC100002" customerId="CUST10001" type="Current">
+            <AccountNumber>XXXXXX7823</AccountNumber>
+            <Currency>INR</Currency>
+            <Status>Active</Status>
+            <OpeningDate>2024-03-12</OpeningDate>
+
+            <Balance>
+                <Available currency="INR">540000.00</Available>
+                <Current currency="INR">540000.00</Current>
+                <Blocked currency="INR">0.00</Blocked>
+            </Balance>
+
+            <Interest>
+                <Rate>0.00</Rate>
+                <RateUnit>PercentagePerAnnum</RateUnit>
+            </Interest>
+        </Account>
+
+
+        <Account accountId="ACC200001" customerId="CUST10002" type="Savings">
+            <AccountNumber>XXXXXX9012</AccountNumber>
+            <Currency>INR</Currency>
+            <Status>Active</Status>
+            <OpeningDate>2021-09-05</OpeningDate>
+
+            <Balance>
+                <Available currency="INR">325750.25</Available>
+                <Current currency="INR">325750.25</Current>
+                <Blocked currency="INR">0.00</Blocked>
+            </Balance>
+
+            <Interest>
+                <Rate>3.50</Rate>
+                <RateUnit>PercentagePerAnnum</RateUnit>
+                <CalculationMethod>Daily</CalculationMethod>
+            </Interest>
+        </Account>
+
+    </Accounts>
+
+
+    <!-- ========================================================= -->
+    <!-- LOANS                                                     -->
+    <!-- ========================================================= -->
+
+    <Loans>
+
+        <Loan loanId="LN500001" customerId="CUST10001" type="HomeLoan">
+            <LoanAccountNumber>HL000456789</LoanAccountNumber>
+
+            <PrincipalAmount currency="INR">7500000.00</PrincipalAmount>
+            <OutstandingAmount currency="INR">6825000.00</OutstandingAmount>
+
+            <InterestRate>
+                <Rate>8.25</Rate>
+                <RateType>Floating</RateType>
+                <Benchmark>RepoLinkedLendingRate</Benchmark>
+            </InterestRate>
+
+            <Tenure>
+                <OriginalMonths>240</OriginalMonths>
+                <RemainingMonths>198</RemainingMonths>
+            </Tenure>
+
+            <EMI currency="INR">
+                <Amount>63500.00</Amount>
+                <DueDate>2026-10-05</DueDate>
+            </EMI>
+
+            <RepaymentHistory>
+
+                <Payment paymentId="PAY001">
+                    <Date>2026-07-05</Date>
+                    <Amount currency="INR">63500.00</Amount>
+                    <PrincipalComponent>16450.00</PrincipalComponent>
+                    <InterestComponent>47050.00</InterestComponent>
+                    <Status>Paid</Status>
+                </Payment>
+
+                <Payment paymentId="PAY002">
+                    <Date>2026-08-05</Date>
+                    <Amount currency="INR">63500.00</Amount>
+                    <PrincipalComponent>16560.00</PrincipalComponent>
+                    <InterestComponent>46940.00</InterestComponent>
+                    <Status>Paid</Status>
+                </Payment>
+
+                <Payment paymentId="PAY003">
+                    <Date>2026-09-05</Date>
+                    <Amount currency="INR">63500.00</Amount>
+                    <PrincipalComponent>16675.00</PrincipalComponent>
+                    <InterestComponent>46825.00</InterestComponent>
+                    <Status>Paid</Status>
+                </Payment>
+
+            </RepaymentHistory>
+
+            <Collateral>
+                <Type>ResidentialProperty</Type>
+                <EstimatedValue currency="INR">9500000.00</EstimatedValue>
+                <Location>
+                    <City>Mumbai</City>
+                    <State>Maharashtra</State>
+                </Location>
+            </Collateral>
+        </Loan>
+
+
+        <Loan loanId="LN500002" customerId="CUST10002" type="PersonalLoan">
+            <LoanAccountNumber>PL000987654</LoanAccountNumber>
+
+            <PrincipalAmount currency="INR">1000000.00</PrincipalAmount>
+            <OutstandingAmount currency="INR">625000.00</OutstandingAmount>
+
+            <InterestRate>
+                <Rate>11.50</Rate>
+                <RateType>Fixed</RateType>
+            </InterestRate>
+
+            <Tenure>
+                <OriginalMonths>60</OriginalMonths>
+                <RemainingMonths>38</RemainingMonths>
+            </Tenure>
+
+            <EMI currency="INR">
+                <Amount>22000.00</Amount>
+                <DueDate>2026-10-10</DueDate>
+            </EMI>
+
+            <Status>Active</Status>
+        </Loan>
+
+    </Loans>
+
+
+    <!-- ========================================================= -->
+    <!-- INVESTMENT PORTFOLIOS                                     -->
+    <!-- ========================================================= -->
+
+    <InvestmentPortfolios>
+
+        <Portfolio portfolioId="PORT10001" customerId="CUST10001">
+
+            <BaseCurrency>INR</BaseCurrency>
+
+            <RiskProfile>
+                <Category>Moderate</Category>
+                <TargetReturn>10.00</TargetReturn>
+            </RiskProfile>
+
+            <Holdings>
+
+                <Holding assetClass="Equity">
+                    <Symbol>RELIANCE</Symbol>
+                    <Exchange>NSE</Exchange>
+                    <Quantity>50</Quantity>
+                    <AveragePurchasePrice currency="INR">2800.00</AveragePurchasePrice>
+                    <CurrentPrice currency="INR">2925.50</CurrentPrice>
+                    <MarketValue currency="INR">146275.00</MarketValue>
+                </Holding>
+
+                <Holding assetClass="Equity">
+                    <Symbol>TCS</Symbol>
+                    <Exchange>NSE</Exchange>
+                    <Quantity>25</Quantity>
+                    <AveragePurchasePrice currency="INR">3950.00</AveragePurchasePrice>
+                    <CurrentPrice currency="INR">4125.75</CurrentPrice>
+                    <MarketValue currency="INR">103143.75</MarketValue>
+                </Holding>
+
+                <Holding assetClass="MutualFund">
+                    <Symbol>GTFLEXICAP</Symbol>
+                    <FundName>Global Trust Flexi Cap Fund</FundName>
+                    <Units>1250.50</Units>
+                    <NAV currency="INR">85.42</NAV>
+                    <MarketValue currency="INR">106820.71</MarketValue>
+                </Holding>
+
+                <Holding assetClass="GovernmentBond">
+                    <ISIN>IN0000012345</ISIN>
+                    <FaceValue currency="INR">100000.00</FaceValue>
+                    <Quantity>10</Quantity>
+                    <MarketValue currency="INR">1012500.00</MarketValue>
+                </Holding>
+
+            </Holdings>
+
+            <PortfolioSummary>
+                <TotalInvested currency="INR">1250000.00</TotalInvested>
+                <CurrentValue currency="INR">1368739.46</CurrentValue>
+                <UnrealizedGain currency="INR">118739.46</UnrealizedGain>
+                <ReturnPercentage>9.50</ReturnPercentage>
+            </PortfolioSummary>
+
+        </Portfolio>
+
+    </InvestmentPortfolios>
+
+
+    <!-- ========================================================= -->
+    <!-- INTERNATIONAL TRANSFERS                                   -->
+    <!-- ========================================================= -->
+
+    <InternationalTransfers>
+
+        <Transfer transferId="IFT700001" customerId="CUST10001">
+            <Date>2026-09-29</Date>
+
+            <Sender>
+                <AccountNumber>XXXXXX4521</AccountNumber>
+                <Name>Arjun Raj Patil</Name>
+                <Country>India</Country>
+            </Sender>
+
+            <Beneficiary>
+                <Name>Michael Anderson</Name>
+                <BankName>Example International Bank</BankName>
+                <AccountNumber>XXXXXX8899</AccountNumber>
+                <Country>United States</Country>
+                <SWIFT>EXIBUS33XXX</SWIFT>
+            </Beneficiary>
+
+            <Amount>
+                <Source currency="INR">250000.00</Source>
+                <ExchangeRate>0.01195</ExchangeRate>
+                <Destination currency="USD">2987.50</Destination>
+            </Amount>
+
+            <Fees currency="INR">1500.00</Fees>
+
+            <Purpose>Education Expenses</Purpose>
+
+            <Compliance>
+                <AMLCheck>Passed</AMLCheck>
+                <SanctionsScreening>Passed</SanctionsScreening>
+                <Status>Approved</Status>
+            </Compliance>
+
+            <Status>Processed</Status>
+        </Transfer>
+
+    </InternationalTransfers>
+
+
+    <!-- ========================================================= -->
+    <!-- CARDS                                                      -->
+    <!-- ========================================================= -->
+
+    <Cards>
+
+        <Card cardId="CARD10001" customerId="CUST10001" type="CreditCard">
+            <MaskedNumber>XXXX-XXXX-XXXX-7834</MaskedNumber>
+            <Network>VISA</Network>
+            <Status>Active</Status>
+
+            <CreditLimit currency="INR">200000.00</CreditLimit>
+            <AvailableCredit currency="INR">137500.00</AvailableCredit>
+
+            <BillingCycle>
+                <StartDate>2026-09-01</StartDate>
+                <EndDate>2026-09-30</EndDate>
+                <DueDate>2026-10-15</DueDate>
+            </BillingCycle>
+
+            <Statement>
+                <OpeningBalance currency="INR">42500.00</OpeningBalance>
+                <Purchases currency="INR">32500.00</Purchases>
+                <Payments currency="INR">50000.00</Payments>
+                <ClosingBalance currency="INR">25000.00</ClosingBalance>
+                <MinimumDue currency="INR">2500.00</MinimumDue>
+            </Statement>
+
+            <Rewards>
+                <PointsEarned>3250</PointsEarned>
+                <PointsRedeemed>1000</PointsRedeemed>
+                <AvailablePoints>2250</AvailablePoints>
+            </Rewards>
+        </Card>
+
+    </Cards>
+
+
+    <!-- ========================================================= -->
+    <!-- PAYMENTS                                                   -->
+    <!-- ========================================================= -->
+
+    <Payments>
+
+        <Payment paymentId="PMT800001" method="UPI">
+            <Payer>
+                <CustomerId>CUST10001</CustomerId>
+                <AccountId>ACC100001</AccountId>
+            </Payer>
+
+            <Payee>
+                <Name>Example Utilities Ltd</Name>
+                <Identifier>UTILITIES@EXAMPLE</Identifier>
+            </Payee>
+
+            <Amount currency="INR">2450.00</Amount>
+
+            <Timestamp>2026-09-30T18:22:14+05:30</Timestamp>
+
+            <Status>Successful</Status>
+
+            <UPIDetails>
+                <TransactionReference>UPI20260930123456</TransactionReference>
+                <ResponseCode>00</ResponseCode>
+                <NPCIStatus>Success</NPCIStatus>
+            </UPIDetails>
+        </Payment>
+
+
+        <Payment paymentId="PMT800002" method="NEFT">
+            <Payer>
+                <CustomerId>CUST10002</CustomerId>
+                <AccountId>ACC200001</AccountId>
+            </Payer>
+
+            <Payee>
+                <Name>Example Services Pvt Ltd</Name>
+                <AccountNumber>XXXXXX2233</AccountNumber>
+                <IFSC>GTBK0001234</IFSC>
+            </Payee>
+
+            <Amount currency="INR">85000.00</Amount>
+
+            <Timestamp>2026-09-30T11:10:45+05:30</Timestamp>
+
+            <Status>Successful</Status>
+
+            <NEFTDetails>
+                <UTR>GTBN202609301234567</UTR>
+                <SettlementDate>2026-09-30</SettlementDate>
+            </NEFTDetails>
+        </Payment>
+
+    </Payments>
+
+
+    <!-- ========================================================= -->
+    <!-- FOREIGN EXCHANGE                                          -->
+    <!-- ========================================================= -->
+
+    <ForeignExchangeRates>
+
+        <RatePair>
+            <BaseCurrency>USD</BaseCurrency>
+            <QuoteCurrency>INR</QuoteCurrency>
+            <Bid>82.9500</Bid>
+            <Ask>83.1500</Ask>
+            <Mid>83.0500</Mid>
+            <Timestamp>2026-10-01T09:30:00+05:30</Timestamp>
+        </RatePair>
+
+        <RatePair>
+            <BaseCurrency>EUR</BaseCurrency>
+            <QuoteCurrency>INR</QuoteCurrency>
+            <Bid>96.1000</Bid>
+            <Ask>96.5000</Ask>
+            <Mid>96.3000</Mid>
+            <Timestamp>2026-10-01T09:30:00+05:30</Timestamp>
+        </RatePair>
+
+        <RatePair>
+            <BaseCurrency>GBP</BaseCurrency>
+            <QuoteCurrency>INR</QuoteCurrency>
+            <Bid>110.2500</Bid>
+            <Ask>110.7500</Ask>
+            <Mid>110.5000</Mid>
+            <Timestamp>2026-10-01T09:30:00+05:30</Timestamp>
+        </RatePair>
+
+    </ForeignExchangeRates>
+
+
+    <!-- ========================================================= -->
+    <!-- FRAUD AND SECURITY                                        -->
+    <!-- ========================================================= -->
+
+    <SecurityMonitoring>
+
+        <FraudAlerts>
+
+            <Alert alertId="FRAUD001" severity="Medium">
+                <CustomerId>CUST10001</CustomerId>
+                <TransactionId>TXN900002</TransactionId>
+                <AlertType>UnusualTransaction</AlertType>
+                <Description>
+                    Transaction amount is higher than the customer's
+                    historical average for this merchant category.
+                </Description>
+                <RiskScore>61</RiskScore>
+                <Action>ManualReview</Action>
+                <Status>UnderReview</Status>
+            </Alert>
+
+        </FraudAlerts>
+
+
+        <LoginEvents>
+
+            <LoginEvent eventId="LOGIN001">
+                <CustomerId>CUST10001</CustomerId>
+                <Timestamp>2026-09-30T08:45:12+05:30</Timestamp>
+                <IPAddress>192.0.2.10</IPAddress>
+                <Device>
+                    <Type>Desktop</Type>
+                    <OperatingSystem>Windows</OperatingSystem>
+                    <Browser>Chrome</Browser>
+                </Device>
+                <Location>
+                    <City>Mumbai</City>
+                    <Country>India</Country>
+                </Location>
+                <Result>Successful</Result>
+            </LoginEvent>
+
+            <LoginEvent eventId="LOGIN002">
+                <CustomerId>CUST10002</CustomerId>
+                <Timestamp>2026-09-30T21:15:42+05:30</Timestamp>
+                <IPAddress>192.0.2.25</IPAddress>
+                <Device>
+                    <Type>Mobile</Type>
+                    <OperatingSystem>Android</OperatingSystem>
+                    <Browser>MobileChrome</Browser>
+                </Device>
+                <Location>
+                    <City>Pune</City>
+                    <Country>India</Country>
+                </Location>
+                <Result>Successful</Result>
+            </LoginEvent>
+
+        </LoginEvents>
+
+    </SecurityMonitoring>
+
+
+    <!-- ========================================================= -->
+    <!-- AUDIT LOG                                                 -->
+    <!-- ========================================================= -->
+
+    <AuditLog>
+
+        <AuditEvent eventId="AUD001">
+            <Timestamp>2026-10-01T08:00:01+05:30</Timestamp>
+            <Actor>
+                <Type>System</Type>
+                <Id>CORE_BANKING_SYSTEM</Id>
+            </Actor>
+            <Action>AccountBalanceUpdate</Action>
+            <Resource>
+                <Type>Account</Type>
+                <Id>ACC100001</Id>
+            </Resource>
+            <Result>Success</Result>
+        </AuditEvent>
+
+        <AuditEvent eventId="AUD002">
+            <Timestamp>2026-10-01T08:02:44+05:30</Timestamp>
+            <Actor>
+                <Type>Employee</Type>
+                <Id>EMP1001</Id>
+            </Actor>
+            <Action>CustomerProfileViewed</Action>
+            <Resource>
+                <Type>Customer</Type>
+                <Id>CUST10001</Id>
+            </Resource>
+            <Result>Success</Result>
+        </AuditEvent>
+
+    </AuditLog>
+
+
+    <!-- ========================================================= -->
+    <!-- SYSTEM SUMMARY                                            -->
+    <!-- ========================================================= -->
+
+    <SystemSummary>
+        <ReportingDate>2026-10-01</ReportingDate>
+
+        <Statistics>
+            <TotalCustomers>2</TotalCustomers>
+            <ActiveAccounts>3</ActiveAccounts>
+            <ActiveLoans>2</ActiveLoans>
+            <ActiveCards>1</ActiveCards>
+            <InvestmentPortfolios>1</InvestmentPortfolios>
+            <PendingFraudAlerts>1</PendingFraudAlerts>
+        </Statistics>
+
+        <SystemStatus>
+            <CoreBanking>Operational</CoreBanking>
+            <PaymentGateway>Operational</PaymentGateway>
+            <InternetBanking>Operational</InternetBanking>
+            <MobileBanking>Operational</MobileBanking>
+            <FraudDetection>Operational</FraudDetection>
+        </SystemStatus>
+    </SystemSummary>
+
+</BankingSystem>

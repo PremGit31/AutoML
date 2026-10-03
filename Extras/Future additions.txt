@@ -1,1 +1,0 @@
--Each tab(regression, eda, etc) has its own private data manager. User will be able to upload dataset from any tab.

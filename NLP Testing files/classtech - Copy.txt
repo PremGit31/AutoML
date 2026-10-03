@@ -1,0 +1,8 @@
+================================================================================
+CLASS: TECH SUPPORT & LOG ENTRIES (Target Class: Tech_Support)
+================================================================================
+DOC_001: [2026-09-21 14:05:12] ERROR: Database connection failed. java.sql.SQLException: Cannot create PoolableConnectionFactory (Connection refused: connect). http://127.0.0
+DOC_002: The systems administrator is running database migrations on the production cluster. The developer runs the script, but the runner failed because it ran out of memory. 
+DOC_003: <html><body><h3>CRITICAL ALERT: REPLICATION LAG</h3></body></html> Our main database is experiencing 15000ms of replication delay across 4 nodes.
+DOC_004: Can anyone help me resolve this persistent database error? The connection pool keeps throwing exceptions and crashing the microservices.
+DOC_005: Please reset the database server immediately. The automated pipeline is stuck in a loop and cannot connect to the backend system.
