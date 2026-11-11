@@ -430,7 +430,7 @@ def gpu_status_badge():
     """Small persistent badge showing whether GPU acceleration is active."""
     if GPU_INFO["available"]:
         st.markdown(
-            f"<span class='gpu-badge gpu-badge-on'>🎮 GPU active — {GPU_INFO['name']}</span>",
+            f"<span class='gpu-badge gpu-badge-on'>GPU active — {GPU_INFO['name']}</span>",
             unsafe_allow_html=True,
         )
     else:
